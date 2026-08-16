@@ -1,0 +1,3 @@
+"""
+ClipSense Pipeline Root Package
+"""

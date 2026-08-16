@@ -1,0 +1,3 @@
+"""
+ClipSense Multimodal Extraction Package
+"""
