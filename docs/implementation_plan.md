@@ -75,3 +75,19 @@ Final Short Clip
 - `pipeline/experts/base.py`: Base expert contract and pluggable visual encoder protocol.
 - `pipeline/orchestrator.py`: Pipeline orchestrator stub with invariant validation.
 - `tests/test_w1_architecture.py`: Automated verification suite for W1 contracts.
+
+---
+
+## W2 Deliverables
+
+### `ai-podcast-clipper-backend/`
+
+- `pipeline/extraction/transcript_extractor.py`: WhisperX transcription and forced alignment with word-level continuous timestamps, speaker metadata, PyTorch 2.6+ checkpoint compatibility patch, and strict mode.
+- `pipeline/extraction/frame_extractor.py`: Uniform frame sampling (1 fps) and scene cut detection preserving frame-level continuous timestamps.
+- `pipeline/extraction/prosody_extractor.py`: Physical acoustic feature extraction (autocorrelation F0 pitch, RMS energy, dynamic range, voicing fraction, speaking rate) over continuous sliding windows.
+- `pipeline/extraction/conversation_extractor.py`: Speaker turn parsing, silence gap boundaries (>0.7s), and dialogue exchange metrics with pause-based fallback.
+- `pipeline/extraction/extractor_pipeline.py`: Pipeline coordinator with stage caching, deterministic `manifest.json` generation, terminal checkmarks (`[✓]`), and timestamp duration validation.
+- `tests/test_w2_extractors.py`: Unit tests for frame, prosody, and conversation extractors.
+- `tests/test_w2_smoke.py`: End-to-end extraction pipeline smoke test.
+- `tests/run_representative_validation.py`: Official strict-mode validation script on 90.0-second conversational sample (`tests/sample_conversational_90s.mp4`) with real WhisperX inference.
+

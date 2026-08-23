@@ -15,16 +15,30 @@ pnpm-debug.log*
 *.swp
 *.swo
 *.swn
+runs/
+**/runs/
 
 # Editor directories and files
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
+.vscode/
+**/.vscode/
 *.sublime-workspace
 
 *.mp4
+
+# Model weights and checkpoints
+*.pth
+*.pt
+*.bin
+*.model
+*.onnx
+
+# Legacy reference files, scratch scripts, and external modules
+ai-podcast-clipper-backend/main.py
+ai-podcast-clipper-backend/temp.py
+ai-podcast-clipper-backend/video_cut.py
+ai-podcast-clipper-backend/ytdownload.py
+ai-podcast-clipper-backend/ai eval metrics.png
+ai-podcast-clipper-backend/asd/
 
 # Environment variables
 .env

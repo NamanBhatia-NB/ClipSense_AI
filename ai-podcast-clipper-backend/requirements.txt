@@ -1,0 +1,20 @@
+tqdm
+# torch
+opencv-python
+ffmpegcv
+numpy<2.0
+python_speech_features
+scipy
+scenedetect
+scikit-learn
+qdown
+# torchvision
+pandas
+transformers==4.38.2
+accelerate==0.27.2
+datasets==2.18.0
+google-genai
+pysubs2
+boto3
+fastapi[standard]
+whisperx
