@@ -26,6 +26,7 @@ from core.schemas import (
     ClipMetadata,
     ProcessVideoResponse,
 )
+from core.llm import LLMClient, GeminiLLMClient, MockLLMClient, get_llm_client
 
 __all__ = [
     "TimestampedWord",
@@ -51,4 +52,8 @@ __all__ = [
     "ProcessVideoRequest",
     "ClipMetadata",
     "ProcessVideoResponse",
+    "LLMClient",
+    "GeminiLLMClient",
+    "MockLLMClient",
+    "get_llm_client",
 ]

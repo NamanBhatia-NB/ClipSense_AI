@@ -224,4 +224,108 @@ Prosody Time Range: [0.000s -> 90.000s] (Clamped <= 90.00s)
 [✓] ALL CHECKS PASSED: Real WhisperX inference confirmed on representative 90s sample!
 ```
 
+---
+
+# W3: Independent Modality-Specific Temporal Evidence Generation (Transcript Expert + Conversation Expert)
+
+## Overview & Research Goal
+Development of the Transcript Expert and Conversation Expert for generating independent, timestamped semantic and conversational evidence proposals.
+
+In strict adherence to the research roadmap:
+- **W3 is strictly independent modality-specific temporal evidence generation**, NOT final highlight selection, clipping, or viral classification.
+- **No final highlight generation, MTER reasoning, multimodal conflict resolution, or boundary optimization** was implemented.
+- The two experts independently evaluate extracted W2 artifacts and output isolated evidence bundles without cross-expert score collapse or temporal merging.
+
+## Architectural Components Implemented
+1. **`core/llm.py`** (*Provider-Agnostic Structured LLM Client*):
+   - Abstract `LLMClient` with concrete `GeminiLLMClient` (Google GenAI SDK, `gemini-2.5-flash`) and offline `MockLLMClient`.
+   - Strict Pydantic structured output, exponential backoff retry for transient network/rate-limit errors, and zero hidden chain-of-thought (`thinking_budget=0`).
+2. **`pipeline/experts/transcript_expert.py`** (*Transcript Expert*):
+   - Evaluates linguistic and semantic discourse across bounded analysis windows (`min: 15.0s`, `max: 45.0s`).
+   - Programmatically grounds candidate boundaries using indexed word representation (`start_word_index`, `end_word_index`) to exact continuous WhisperX timestamps (`SourceResolutionType.WORD_TIMESTAMP`).
+3. **`pipeline/experts/conversation_expert.py`** (*Conversation Expert*):
+   - Evaluates conversational structure and discourse progression across localized sub-intervals (`min: 15.0s`, `max: 50.0s`).
+   - Source & Anchor Consistency:
+     - Proposals aligned with speech segment boundaries report `SourceResolutionType.SPEECH_SEGMENT` with anchor `speech_segment_X`.
+     - Proposals targeting sub-segment word intervals report `SourceResolutionType.WORD_TIMESTAMP` with anchor `word_anchored_X:Y`.
+   - Single-speaker safety: recognizes single-speaker monologues, sets `discourse_unit_complete = True/False`, and strictly enforces `speaker_interaction: false` and `is_single_speaker_monologue: true` without fabricating multi-speaker interactions.
+
+## Verification & Representative Validation Results
+
+### 1. Automated Test Suite
+- `tests/test_w1_architecture.py`: Passed.
+- `tests/test_w2_extractors.py`: Passed.
+- `tests/test_w2_caching_and_timestamps.py`: Passed.
+- `tests/test_transcript_expert.py`: Passed (includes deterministic word grounding test and candidate duration constraint checks).
+- `tests/test_conversation_expert.py`: Passed (includes single-speaker safety, multi-speaker exchange, source/anchor consistency, artifact provenance loading, and prompt transcript injection tests).
+
+### 2. Representative Validation Output (`tests/run_w3_expert_validation.py`)
+```
+====================================================================
+ClipSense W3: Independent Transcript & Conversation Experts Validation
+====================================================================
+[PROVENANCE & DATA INTEGRITY]
+  - Source Run ID: representative_90s_validation
+  - Source Video: .../sample_conversational_90s.mp4
+  - Transcript Artifact: .../runs/representative_90s_validation/transcript.json
+    SHA256: 9bd06b71c1143051434b77d86e40ee12acb17916b50a6465141cd4cc029a3aa7 (Duration: 89.86s, Words: 321)
+  - Conversation Artifact: .../runs/representative_90s_validation/conversation.json
+    SHA256: 8a3feefe178e9ac0a5b2c6b0340f893ec7f5c04b842bf8b732fe764edb1bbb89 (Duration: 90.00s, Turns: 4)
+  - Consistency Check: Confirmed identical source video and duration bounds.
+
+[✓] W2 transcript loaded
+[✓] W2 conversation structure loaded
+[✓] Transcript Expert
+[✓] Conversation Expert
+[✓] Proposal schema validation
+[✓] Timestamp validation
+[✓] Evidence artifacts generated
+
+--- TRANSCRIPT EXPERT EVIDENCE PROPOSALS ---
+Total Proposals Generated: 3
+  - [5.975s -> 24.548s] (dur: 18.57s, conf: 0.90)
+    Type: explanatory_claim | Anchor: word_index_20:96
+    Source: word-level timestamp | Avg Word Duration: 0.2412s
+    Excerpt: "I think kids get away with too much and I think there's got an element of discipline. There's got an element of you've got that fear for your dad. I t..."
+    Features: {'topic_transition': False, 'contextual_completeness': 0.9, 'semantic_importance': 0.8, 'self_contained': True, 'word_count': 77, 'start_word_index': 20, 'end_word_index': 96, 'start_word': 'I', 'end_word': 'that.', 'avg_word_duration_sec': 0.2412077922077922}
+    Explanation: The speaker explains that kids get away with too much and need discipline, suggesting that a healthy fear or respect for parents, particularly fathers, can prevent them from making bad choices.
+
+  - [24.568s -> 48.014s] (dur: 23.45s, conf: 0.85)
+    Type: explanatory_claim | Anchor: word_index_97:178
+    Source: word-level timestamp | Avg Word Duration: 0.2859s
+    Excerpt: "that. I think it's healthy to have some sort of Feel over your parents back in the day you were getting slapped in the head and it's kicked in the ass..."
+    Features: {'topic_transition': False, 'contextual_completeness': 0.85, 'semantic_importance': 0.75, 'self_contained': True, 'word_count': 82, 'start_word_index': 97, 'end_word_index': 178, 'start_word': 'I', 'end_word': 'generation.', 'avg_word_duration_sec': 0.2859268292682927}
+    Explanation: The speaker claims it's healthy to have some fear of parents, contrasting past disciplinary methods (slapping, kicking) with current 'soft' generations who lack respect.
+
+  - [68.272s -> 89.865s] (dur: 21.59s, conf: 0.90)
+    Type: explanatory_claim | Anchor: word_index_253:320
+    Source: word-level timestamp | Avg Word Duration: 0.3175s
+    Excerpt: "So the first thing is I agree with you that we've got soft on our kids. But my dad was at times I did things like I'd like to him or I'd hide things f..."
+    Features: {'topic_transition': False, 'contextual_completeness': 0.9, 'semantic_importance': 0.8, 'self_contained': True, 'word_count': 68, 'start_word_index': 253, 'end_word_index': 320, 'start_word': 'So', 'end_word': 'line.', 'avg_word_duration_sec': 0.31754411764705864}
+    Explanation: The speaker agrees that society has become soft on children but also explains that their own father's strictness led to fear and hiding things, suggesting a need for balance in parenting.
+
+--- CONVERSATION EXPERT EVIDENCE PROPOSALS ---
+Total Proposals Generated: 2
+  - [0.091s -> 27.269s] (dur: 27.18s, conf: 0.90)
+    Type: monologue_thematic_unit | Anchor: speech_segment_0
+    Source: speech segment | Pause Threshold: 0.70s
+    Excerpt: "I was shit scared of my dad, but healthy scared. I think that's important for kids to know it is. I think kids get away with too much and I think ther..."
+    Features: {'discourse_unit_complete': True, 'speaker_interaction': False, 'pause_boundary_supported': True, 'discourse_phase': 'setup_development_payoff', 'num_speakers': 1, 'is_single_speaker_monologue': True}
+    Explanation: The speaker introduces the concept of 'healthy fear' for a parent and explains its importance for discipline and respect in children's decision-making.
+
+  - [28.471s -> 71.557s] (dur: 43.09s, conf: 0.85)
+    Type: monologue_thematic_unit | Anchor: speech_segment_1
+    Source: speech segment | Pause Threshold: 0.70s
+    Excerpt: "Feel over your parents back in the day you were getting slapped in the head and it's kicked in the ass. Well, I was anyway coming from Glasgow, but......"
+    Features: {'discourse_unit_complete': True, 'speaker_interaction': False, 'pause_boundary_supported': True, 'discourse_phase': 'development', 'num_speakers': 1, 'is_single_speaker_monologue': True}
+    Explanation: The speaker contrasts past disciplinary methods with current approaches, arguing that the present generation is 'soft' due to a lack of respect for parents, linking it back to the 'fear' element.
+
+Evidence artifacts successfully saved:
+  - runs/representative_90s_validation/transcript_evidence.json
+  - runs/representative_90s_validation/conversation_evidence.json
+
+[✓] ALL W3 EVIDENCE CHECKS PASSED (Localized candidate proposals verified)!
+```
+
+
 

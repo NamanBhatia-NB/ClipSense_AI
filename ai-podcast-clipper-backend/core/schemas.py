@@ -129,6 +129,7 @@ class SourceResolutionType(str, Enum):
     FRAME_TIMESTAMP = "frame_timestamp"
     PROSODY_WINDOW = "prosody_window"
     SPEAKER_TURN = "speaker_turn"
+    SPEECH_SEGMENT = "speech_segment"
     SCENE_BOUNDARY = "scene_boundary"
     MIXED = "mixed"
 
@@ -141,7 +142,7 @@ class ProposalSourceMetadata(BaseModel):
     source_type: SourceResolutionType
     temporal_resolution_sec: float = Field(
         ..., 
-        description="Temporal granularity of the raw measurement (e.g. 0.05 for words, 1.0 for prosody window)"
+        description="Temporal granularity of the raw measurement (e.g. word duration from WhisperX, prosody window hop)"
     )
     alignment_anchor: str = Field(
         ..., 

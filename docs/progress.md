@@ -54,4 +54,36 @@
 ### Supporting Engineering:
 - Video ingestion, PyTorch 2.6+ checkpoint compatibility patch, and artifact caching lifecycle.
 
+## W3 — 24 Aug – 30 Aug 2026
+**Milestone: Independent Modality-Specific Temporal Evidence Generation (Transcript Expert + Conversation Expert)**
+
+### Scope & Architectural Boundary:
+- **W3 Scope**: Development of independent modality-specific temporal evidence experts (**Transcript Expert** and **Conversation Expert**) on top of W2 extraction artifacts.
+- **Explicit Stage Separation**:
+  - W3 is strictly **independent modality-specific temporal evidence generation**, NOT final highlight selection, clipping, or viral classification.
+  - The experts generate independent candidate proposals packaged in `ExpertEvidenceBundle` and output to dedicated artifacts (`transcript_evidence.json`, `conversation_evidence.json`).
+  - Cross-expert aggregation, MTER reasoning, multimodal conflict resolution, score fusion, boundary optimization, and final clip selection are intentionally deferred to subsequent stages (W4/W5).
+
+### Research & Reasoning Accomplishments:
+- **LLM Abstraction (`core/llm.py`)**:
+  - Built a provider-agnostic `LLMClient` interface decoupling expert logic from proprietary LLM implementations.
+  - Implemented `GeminiLLMClient` using the Google GenAI SDK (`gemini-2.5-flash` by default) with native Pydantic structured output, exponential backoff for transient errors, timeout handling, zero hidden chain-of-thought (`thinking_budget=0`), and strict mode failure semantics.
+  - Implemented `MockLLMClient` for deterministic offline testing.
+- **Transcript Expert (`pipeline/experts/transcript_expert.py`)**:
+  - Evaluates timestamped spoken transcripts across bounded analysis windows for semantic and linguistic evidence (semantic importance, core claims, explanations, and conceptual self-containment).
+  - Configurable duration limits (`min_candidate_duration_sec = 15.0s`, `max_candidate_duration_sec = 45.0s`).
+  - Grounding: analyzes indexed word representations (`[i] word`) and programmatically maps proposed `start_word_index` and `end_word_index` to exact WhisperX continuous floating-point timestamps (`SourceResolutionType.WORD_TIMESTAMP`).
+- **Conversation Expert (`pipeline/experts/conversation_expert.py`)**:
+  - Evaluates conversational structure and discourse dynamics: coherent localized conversational sub-intervals (setup -> development -> payoff), pause boundaries, and speech segment pacing.
+  - Source & Anchor Consistency:
+    - Proposals aligned with speech segment boundaries report `SourceResolutionType.SPEECH_SEGMENT` with anchor `speech_segment_X`.
+    - Proposals targeting sub-segment word intervals report `SourceResolutionType.WORD_TIMESTAMP` with anchor `word_anchored_X:Y`.
+  - Single-speaker safety: handles monologues with `discourse_unit_complete = True/False`, strictly enforcing `speaker_interaction = False` and `is_single_speaker_monologue = True` without inventing speaker exchanges.
+- **Verification & Demonstration**:
+  - Automated unit test suites (`tests/test_transcript_expert.py` and `tests/test_conversation_expert.py`) covering schema validation, bounds checks, error rejection, deterministic word grounding, source/anchor consistency, artifact provenance, and prompt text injection.
+  - Reproducible validation runner `tests/run_w3_expert_validation.py` executed live against the representative 90s sample in strict mode generating localized candidate evidence artifacts.
+
+### Supporting Engineering:
+- Implemented frontend authentication foundation, session management, secure credential validation, and legal routing (`src/server/auth/`, `src/actions/auth.ts`, login/signup/terms views).
+
 

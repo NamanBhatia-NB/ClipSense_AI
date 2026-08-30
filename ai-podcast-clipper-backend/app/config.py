@@ -65,6 +65,14 @@ class ConversationConfig(BaseModel):
         description="Turns per minute threshold indicating high-density interactive dialogue"
     )
     min_turn_word_count: int = Field(2, description="Minimum words to count as an active turn")
+    min_candidate_duration_sec: float = Field(
+        15.0, 
+        description="Minimum localized candidate duration in seconds for conversation proposals"
+    )
+    max_candidate_duration_sec: float = Field(
+        50.0, 
+        description="Maximum localized candidate duration in seconds for conversation proposals"
+    )
 
 
 class TranscriptConfig(BaseModel):
@@ -75,6 +83,22 @@ class TranscriptConfig(BaseModel):
     chunk_window_sec: float = Field(900.0, description="15-minute sliding analysis chunk")
     chunk_overlap_sec: float = Field(120.0, description="2-minute overlap between chunks")
     min_wpm_filter: float = Field(60.0, description="Words-per-minute lower bound to discard silence")
+    min_candidate_duration_sec: float = Field(
+        15.0, 
+        description="Minimum localized candidate duration in seconds for transcript proposals"
+    )
+    max_candidate_duration_sec: float = Field(
+        45.0, 
+        description="Maximum localized candidate duration in seconds for transcript proposals"
+    )
+    window_duration_sec: float = Field(
+        60.0, 
+        description="Bounded analysis window duration in seconds for localized semantic extraction"
+    )
+    window_overlap_sec: float = Field(
+        15.0, 
+        description="Overlap between consecutive bounded analysis windows in seconds"
+    )
 
 
 class ClipBoundaryConfig(BaseModel):
@@ -84,6 +108,16 @@ class ClipBoundaryConfig(BaseModel):
     target_clip_duration_sec: float = Field(50.0, description="Ideal target duration")
     dead_air_buffer_sec: float = Field(0.35, description="Buffer around spoken words when trimming silence")
     max_clips_per_run: int = Field(10, description="Upper bound of clips generated per request")
+
+
+class LLMConfig(BaseModel):
+    """Configurable settings for LLM reasoning in semantic experts."""
+    provider: str = Field("gemini", description="LLM provider (e.g., 'gemini', 'mock')")
+    model_name: str = Field("gemini-2.5-flash", description="Model variant for structured semantic extraction")
+    temperature: float = Field(0.2, description="Sampling temperature for deterministic extraction")
+    max_output_tokens: int = Field(8192, description="Upper token limit on structured responses")
+    timeout_sec: float = Field(60.0, description="HTTP / RPC request timeout in seconds")
+    max_retries: int = Field(3, description="Retry count for transient rate limits or server errors")
 
 
 class AppConfig(BaseModel):
@@ -101,6 +135,7 @@ class AppConfig(BaseModel):
     conversation: ConversationConfig = Field(default_factory=ConversationConfig)
     transcript: TranscriptConfig = Field(default_factory=TranscriptConfig)
     clip_boundary: ClipBoundaryConfig = Field(default_factory=ClipBoundaryConfig)
+    llm: LLMConfig = Field(default_factory=LLMConfig)
 
 
 # Global default configuration instance
