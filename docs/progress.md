@@ -86,4 +86,44 @@
 ### Supporting Engineering:
 - Implemented frontend authentication foundation, session management, secure credential validation, and legal routing (`src/server/auth/`, `src/actions/auth.ts`, login/signup/terms views).
 
+## W4 — 31 Aug – 06 Sep 2026
+**Milestone: Independent visual and prosodic temporal evidence generation**
 
+### Scope & Architectural Boundary:
+- **W4 Scope**: Independent visual and prosodic temporal evidence generation from the W2 multimodal extraction artifacts.
+- **Strict Modality Independence**:
+  - The Visual Expert consumes ONLY visual extraction data (`frames.json`, sampled frames, scene boundaries, duration). It does not ingest transcript, conversation, or prosody data.
+  - The Prosody Expert consumes ONLY acoustic prosody extraction data (`prosody.json`, windowed physical acoustic measurements, duration). It does not ingest transcript, conversation, or visual data.
+  - Zero cross-expert reasoning, score fusion, or aggregation.
+- **Explicit Boundary Adherence**:
+  - No cross-expert aggregation, evidence normalization across experts, agreement analysis, conflict resolution, MTER, boundary optimization, final clip selection, benchmark superiority, viewer retention, emotion recognition, gesture understanding, or semantic visual claims were implemented.
+  - The `confidence_estimate` field across all proposals is strictly documented and treated as a normalized evidence-strength estimate, not a calibrated probability.
+
+### Research & Reasoning Accomplishments:
+- **Visual Feature Extractor Protocol & Default Extractor (`pipeline/experts/base.py`, `pipeline/experts/visual_expert.py`)**:
+  - Established `VisualFeatureExtractorInterface` protocol for pluggable visual encoders.
+  - Implemented `LightweightFrameDiffExtractor`: downsamples frames to normalized 32x32 intensity representations and computes normalized L1 distance, providing fast, deterministic, reproducible visual change metrics without committing prematurely to large vision models or loading models at import time.
+- **Visual Expert (`pipeline/experts/visual_expert.py`)**:
+  - Confined strictly to visual-activity, visual-change, and scene-transition evidence generation (no semantic visual understanding or gesture recognition).
+  - Evaluates inter-frame visual change, scene boundary transition density, and continuous visual activity curves smoothed over configurable temporal windows (`activity_smoothing_sec = 3.0s`).
+  - Identifies localized candidate visual intervals via percentile thresholding (`min_activity_percentile = 65.0%`) and transition clustering (`merge_gap_sec = 3.0s`).
+  - Temporal grounding: boundaries strictly correspond to sampled frame timestamps (`SourceResolutionType.FRAME_TIMESTAMP`) with explicit anchors distinguishing sampled-frame indices from native video frame indices (`sampled_frame_S:E (native_frame_NS:NE)`).
+  - Explicitly distinguishes native video FPS from sampled-frame interval (effective temporal evidence resolution: 1.0s).
+  - Configurable candidate duration bounds (`min_candidate_duration_sec = 10.0s`, `max_candidate_duration_sec = 45.0s`).
+  - Strictly rejects whole-input candidate spans ($> 90\%$ duration).
+- **Prosody Expert (`pipeline/experts/prosody_expert.py`)**:
+  - Evaluates physical acoustic features (F0 pitch, RMS energy, voicing fraction).
+  - No LLM for raw acoustic measurements; no direct classification of acoustic dynamics as emotion.
+  - Filters unvoiced / silent windows (`voicing_fraction < min_voicing_fraction`) from baseline calculation to avoid baseline corruption.
+  - Computes moving local acoustic baseline (median voiced F0 and RMS energy over configurable `local_baseline_window_sec = 30.0s`).
+  - Detects vocal emphasis based on composite pitch and loudness elevation relative to the local baseline.
+  - Generates faithful explanations dynamically from actual measured feature values (distinguishing pitch rise vs. energy fall vs. transient emphasis peaks).
+  - Merges nearby emphasis windows (`merge_gap_sec = 3.0s`) and bounds candidates between `min_candidate_duration_sec = 10.0s` and `max_candidate_duration_sec = 45.0s`.
+  - Temporal grounding: boundaries strictly correspond to acoustic window boundaries (`SourceResolutionType.PROSODY_WINDOW`) with anchor `window_start:end` and resolution reporting window hop (0.5s) separately from sample rate (16000 Hz).
+- **Verification & Demonstration**:
+  - Comprehensive unit test suites (`tests/test_visual_expert.py` and `tests/test_prosody_expert.py`) verifying schema conformity, finite continuous floating-point timestamps ($0.0 \le \text{start} < \text{end} \le \text{duration}$), duration consistency, source metadata correctness, deterministic output, empty/insufficient input handling, and silent region filtering.
+  - Complete regression suite passing: W1 architecture, W2 extractors, W2 caching/timestamps, W3 Transcript Expert, W3 Conversation Expert, W4 Visual Expert, and W4 Prosody Expert.
+  - Validation runner `tests/run_w4_expert_validation.py` executed on the representative 90s validation run (`runs/representative_90s_validation/`), producing structured evidence artifacts `visual_evidence.json` and `prosody_evidence.json`.
+
+### Supporting Engineering:
+- Implemented frontend dashboard interface, client workspace, clip display component, Polar billing integration, S3 media upload actions, and Inngest background job processing pipelines.

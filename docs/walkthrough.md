@@ -325,7 +325,139 @@ Evidence artifacts successfully saved:
   - runs/representative_90s_validation/conversation_evidence.json
 
 [✓] ALL W3 EVIDENCE CHECKS PASSED (Localized candidate proposals verified)!
+
+---
+
+# Walkthrough - ClipSense W4: Visual Expert + Prosody Expert
+
+## Milestone Overview
+**W4**: Independent visual and prosodic temporal evidence generation from the W2 multimodal representations.
+
+## Key Principles & Scope Boundaries
+- **Strict Modality Independence**:
+  - The Visual Expert operates exclusively on visual artifacts (`frames.json`, sampled frames, scene boundaries).
+  - The Prosody Expert operates exclusively on physical acoustic prosody artifacts (`prosody.json`).
+  - No cross-modal reasoning, score aggregation, or fusion is performed.
+- **Contract Adherence**:
+  - Both experts inherit `BaseExpert` and return structured `ExpertEvidenceBundle` containers holding `TemporalProposal` objects.
+  - Continuous floating-point seconds are strictly preserved ($0.0 \le \text{start} < \text{end} \le \text{duration}$).
+  - Non-probabilistic evidence-strength `confidence_estimate` in $[0.0, 1.0]$: strictly documented and treated as relative evidence strength, not a calibrated probability.
+  - Explicit source resolution metadata (`SourceResolutionType.FRAME_TIMESTAMP` and `SourceResolutionType.PROSODY_WINDOW`).
+- **Deferred Functionality**:
+  - Cross-expert aggregation, evidence normalization across experts, agreement analysis, conflict resolution, MTER, boundary optimization, final clip selection, and frontend changes remain deferred to W5 and downstream stages.
+
+## Components Implemented
+
+### 1. Visual Feature Extractor & Visual Expert (`pipeline/experts/visual_expert.py`)
+- **`LightweightFrameDiffExtractor`**:
+  - Implements `VisualFeatureExtractorInterface`.
+  - Downsamples frames to 32x32 grayscale intensity representations and computes normalized L1 inter-frame distance.
+  - Fast, deterministic, and avoids loading heavy foundation models at import time.
+- **`VisualExpert`**:
+  - Confined strictly to visual-activity, visual-change, and scene-transition evidence generation (no semantic visual understanding or gesture recognition).
+  - Computes visual activity curves smoothed over temporal windows (`activity_smoothing_sec = 3.0s`).
+  - Incorporates scene transition density and detects visual shifts.
+  - Clusters candidate active frames into candidate intervals (`min_candidate_duration_sec = 10.0s`, `max_candidate_duration_sec = 45.0s`).
+  - Anchors boundaries to exact sampled frame timestamps (`SourceResolutionType.FRAME_TIMESTAMP`), explicitly distinguishing sampled-frame indices from native video frame indices (`sampled_frame_S:E (native_frame_NS:NE)`).
+  - Explicitly records effective sampling interval (1.0s) distinct from native video frame rate (25.0 FPS).
+
+### 2. Prosody Expert (`pipeline/experts/prosody_expert.py`)
+- **`ProsodyExpert`**:
+  - Computes a centered moving local acoustic baseline (median voiced F0 and RMS energy over `local_baseline_window_sec = 30.0s`).
+  - Filters unvoiced silence (`voicing_fraction < min_voicing_fraction = 0.3`) from baseline calculations to prevent distortion.
+  - Computes relative elevation ratios for F0 and RMS energy, forming a composite acoustic emphasis score without hardcoded thresholds.
+  - Generates faithful explanations dynamically from actual measured feature values (distinguishing pitch rise vs. energy fall vs. transient emphasis peaks).
+  - Clusters emphasis windows (`merge_gap_sec = 3.0s`) and bounds intervals between `min_candidate_duration_sec = 10.0s` and `max_candidate_duration_sec = 45.0s`.
+  - Anchors boundaries to exact acoustic window boundaries (`SourceResolutionType.PROSODY_WINDOW`), distinguishing window hop (0.5s) from audio sample rate (16000 Hz).
+
+### 3. Automated Verification Suites
+- `tests/test_visual_expert.py`: 8 unit tests validating schemas, timestamp bounds, duration consistency, determinism, duration clamping, whole-input rejection, and empty/insufficient frame handling.
+- `tests/test_prosody_expert.py`: 9 unit tests validating schemas, timestamp bounds, duration consistency, determinism, silent region filtering, configurable baseline parameters, no hardcoded thresholds, and whole-input rejection.
+- Complete regression suite verified: W1 architecture, W2 extractors, W2 caching/timestamps, W3 Transcript Expert, W3 Conversation Expert, W4 Visual Expert, and W4 Prosody Expert.
+
+## Representative Validation Results (`tests/run_w4_expert_validation.py`)
+
+Executed against representative 90s validation run (`runs/representative_90s_validation/`):
+
+```text
+2026-09-10 21:47:19,904 [INFO] Loaded W2 visual data: 90 frames, SHA256: 1bf6a07d4ff3...
+2026-09-10 21:47:19,916 [INFO] Loaded W2 prosody data: 180 windows, SHA256: 3b5ba7f91461...
+2026-09-10 21:47:20,849 [INFO] Visual Expert produced 4 localized temporal proposals.
+2026-09-10 21:47:20,962 [INFO] Prosody Expert produced 5 localized temporal proposals.
+[✓] W2 visual data loaded
+[✓] W2 prosody data loaded
+[✓] Visual Expert
+[✓] Prosody Expert
+[✓] Proposal schema validation
+[✓] Timestamp validation
+[✓] Evidence artifacts generated
+
+--- VISUAL EXPERT EVIDENCE PROPOSALS ---
+Total Proposals Generated: 4
+  - [0.000s -> 10.000s] (dur: 10.00s, conf: 0.39)
+    Type: visual_shift | Anchor: sampled_frame_0:10 (native_frame_0:250)
+    Source: frame_timestamp
+    Sampling interval: 1.0s | Native FPS: 25.0
+    Features: {'visual_change_score': 0.0339, 'peak_visual_change': 0.2892, 'mean_visual_change': 0.0339, 'scene_change_count': 1, 'frame_count': 11, 'start_sampled_frame_index': 0, 'end_sampled_frame_index': 10, 'start_native_frame_index': 0, 'end_native_frame_index': 250, 'sampling_interval_sec': 1.0, 'native_fps': 25.0}
+    Explanation: A pronounced visual shift occurs in this interval (peak change: 0.289) with 1 scene transition(s).
+
+  - [10.000s -> 20.000s] (dur: 10.00s, conf: 0.19)
+    Type: visual_activity | Anchor: sampled_frame_10:20 (native_frame_250:500)
+    Source: frame_timestamp
+    Sampling interval: 1.0s | Native FPS: 25.0
+    Features: {'visual_change_score': 0.0438, 'peak_visual_change': 0.0749, 'mean_visual_change': 0.0438, 'scene_change_count': 0, 'frame_count': 11, 'start_sampled_frame_index': 10, 'end_sampled_frame_index': 20, 'start_native_frame_index': 250, 'end_native_frame_index': 500, 'sampling_interval_sec': 1.0, 'native_fps': 25.0}
+    Explanation: A sustained increase in visual activity occurs around this interval (mean change score: 0.044, frames: 11).
+
+  - [32.000s -> 42.000s] (dur: 10.00s, conf: 0.64)
+    Type: scene_transition_density | Anchor: sampled_frame_32:42 (native_frame_800:1050)
+    Source: frame_timestamp
+    Sampling interval: 1.0s | Native FPS: 25.0
+    Features: {'visual_change_score': 0.08, 'peak_visual_change': 0.2883, 'mean_visual_change': 0.08, 'scene_change_count': 2, 'frame_count': 11, 'start_sampled_frame_index': 32, 'end_sampled_frame_index': 42, 'start_native_frame_index': 800, 'end_native_frame_index': 1050, 'sampling_interval_sec': 1.0, 'native_fps': 25.0}
+    Explanation: A cluster of 2 scene transitions occurs within this interval with sustained visual changes (mean change score: 0.080).
+
+  - [46.000s -> 63.000s] (dur: 17.00s, conf: 0.77)
+    Type: scene_transition_density | Anchor: sampled_frame_46:63 (native_frame_1150:1575)
+    Source: frame_timestamp
+    Sampling interval: 1.0s | Native FPS: 25.0
+    Features: {'visual_change_score': 0.0898, 'peak_visual_change': 0.2917, 'mean_visual_change': 0.0898, 'scene_change_count': 5, 'frame_count': 18, 'start_sampled_frame_index': 46, 'end_sampled_frame_index': 63, 'start_native_frame_index': 1150, 'end_native_frame_index': 1575, 'sampling_interval_sec': 1.0, 'native_fps': 25.0}
+    Explanation: A cluster of 5 scene transitions occurs within this interval with sustained visual changes (mean change score: 0.090).
+
+--- PROSODY EXPERT EVIDENCE PROPOSALS ---
+Total Proposals Generated: 5
+  - [0.000s -> 10.000s] (dur: 10.00s, conf: 0.54)
+    Type: vocal_emphasis | Anchor: window_0:18
+    Window hop: 0.5000s | Sample Rate: 16000.0 Hz
+    Features: {'f0_change': 1.2836, 'energy_change': 0.9224, 'composite_emphasis': 1.103, 'peak_composite_emphasis': 1.4032, 'mean_f0_hz': 180.22, 'mean_energy': 0.9224, 'voicing_fraction': 0.522, 'window_count': 19, 'start_window_index': 0, 'end_window_index': 18}
+    Explanation: Vocal pitch increases (+28.4%) while acoustic energy decreases (-7.8%) relative to the local 30s acoustic baseline (mean voicing fraction: 0.52).
+
+  - [16.500s -> 26.500s] (dur: 10.00s, conf: 0.51)
+    Type: vocal_emphasis | Anchor: window_33:51
+    Window hop: 0.5000s | Sample Rate: 16000.0 Hz
+    Features: {'f0_change': 1.0937, 'energy_change': 1.0468, 'composite_emphasis': 1.0703, 'peak_composite_emphasis': 1.2719, 'mean_f0_hz': 153.62, 'mean_energy': 1.0468, 'voicing_fraction': 0.6, 'window_count': 19, 'start_window_index': 33, 'end_window_index': 51}
+    Explanation: Both vocal pitch (+9.4%) and acoustic energy (+4.7%) increase relative to the local 30s acoustic baseline (mean voicing fraction: 0.60).
+
+  - [33.500s -> 43.500s] (dur: 10.00s, conf: 0.52)
+    Type: vocal_emphasis | Anchor: window_67:85
+    Window hop: 0.5000s | Sample Rate: 16000.0 Hz
+    Features: {'f0_change': 1.1298, 'energy_change': 1.0182, 'composite_emphasis': 1.074, 'peak_composite_emphasis': 1.3697, 'mean_f0_hz': 163.84, 'mean_energy': 1.0182, 'voicing_fraction': 0.676, 'window_count': 19, 'start_window_index': 67, 'end_window_index': 85}
+    Explanation: Both vocal pitch (+13.0%) and acoustic energy (+1.8%) increase relative to the local 30s acoustic baseline (mean voicing fraction: 0.68).
+
+  - [51.000s -> 61.000s] (dur: 10.00s, conf: 0.50)
+    Type: vocal_emphasis | Anchor: window_102:120
+    Window hop: 0.5000s | Sample Rate: 16000.0 Hz
+    Features: {'f0_change': 1.1191, 'energy_change': 0.9968, 'composite_emphasis': 1.0579, 'peak_composite_emphasis': 1.279, 'mean_f0_hz': 170.24, 'mean_energy': 0.9968, 'voicing_fraction': 0.621, 'window_count': 19, 'start_window_index': 102, 'end_window_index': 120}
+    Explanation: Vocal pitch increases (+11.9%) with energy near baseline (-0.3%) relative to the local 30s acoustic baseline (mean voicing fraction: 0.62).
+
+  - [70.000s -> 80.000s] (dur: 10.00s, conf: 0.45)
+    Type: vocal_emphasis | Anchor: window_140:158
+    Window hop: 0.5000s | Sample Rate: 16000.0 Hz
+    Features: {'f0_change': 0.997, 'energy_change': 0.9976, 'composite_emphasis': 0.8394, 'peak_composite_emphasis': 1.273, 'mean_f0_hz': 156.29, 'mean_energy': 0.9976, 'voicing_fraction': 0.472, 'window_count': 19, 'start_window_index': 140, 'end_window_index': 158}
+    Explanation: A transient vocal emphasis peak (peak composite: 1.27x) occurs in this interval, while span-averaged pitch (-0.3%) and energy (-0.2%) remain near the local 30s baseline (mean voicing fraction: 0.47).
+
+Evidence artifacts successfully saved:
+  - runs/representative_90s_validation/visual_evidence.json
+  - runs/representative_90s_validation/prosody_evidence.json
+
+[✓] ALL W4 EVIDENCE CHECKS PASSED (Visual & Prosody candidates verified)!
 ```
-
-
 

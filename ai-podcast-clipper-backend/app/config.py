@@ -37,6 +37,24 @@ class ProsodyConfig(BaseModel):
         0.3, 
         description="Minimum voiced speech fraction required to evaluate prosody window"
     )
+    min_candidate_duration_sec: float = Field(
+        10.0, 
+        description="Minimum localized candidate duration in seconds for prosody proposals"
+    )
+    max_candidate_duration_sec: float = Field(
+        45.0, 
+        description="Maximum localized candidate duration in seconds for prosody proposals"
+    )
+    merge_gap_sec: float = Field(
+        3.0, 
+        description="Maximum silence/gap duration in seconds across which nearby emphasis windows are clustered"
+    )
+    emphasis_f0_weight: float = Field(0.5, description="Weight for pitch elevation in composite emphasis score")
+    emphasis_energy_weight: float = Field(0.5, description="Weight for RMS energy elevation in composite emphasis score")
+    emphasis_threshold_multiplier: float = Field(
+        1.25, 
+        description="Relative elevation factor above local baseline median to flag an emphasis window"
+    )
 
 
 class VisualConfig(BaseModel):
@@ -51,6 +69,22 @@ class VisualConfig(BaseModel):
     active_encoder: str = Field(
         "lightweight_frame_diff", 
         description="Pluggable visual representation (e.g. lightweight_frame_diff, mobilenet_v3, resnet18)"
+    )
+    min_candidate_duration_sec: float = Field(
+        10.0, 
+        description="Minimum localized candidate duration in seconds for visual proposals"
+    )
+    max_candidate_duration_sec: float = Field(
+        45.0, 
+        description="Maximum localized candidate duration in seconds for visual proposals"
+    )
+    activity_smoothing_sec: float = Field(
+        3.0, 
+        description="Temporal smoothing window in seconds for computing continuous visual activity"
+    )
+    min_activity_percentile: float = Field(
+        65.0, 
+        description="Percentile threshold above which continuous visual activity forms candidate regions"
     )
 
 
