@@ -240,29 +240,138 @@ class CommonEvidenceBundle(BaseModel):
 # 4. MTER (Multimodal Temporal Evidence Reasoner) Schemas
 # ============================================================================
 
+class BoundaryProposalRef(BaseModel):
+    """Reference to a contributing proposal at a specific temporal boundary."""
+    expert_name: str
+    proposal_id: str
+    timestamp: float
+    confidence_estimate: float
+    evidence_type: str
+
+
+class BoundaryCluster(BaseModel):
+    """
+    Cluster of nearby boundary candidates from one or more experts.
+    Preserves member proposals and separate modality identities without collapsing confidence.
+    """
+    cluster_id: str
+    boundary_type: Literal["start", "end"]
+    cluster_center: float = Field(..., description="Continuous floating-point center timestamp in seconds")
+    min_time: float
+    max_time: float
+    spread_sec: float
+    supporting_experts: List[str]
+    member_proposals: List[BoundaryProposalRef] = Field(default_factory=list)
+
+
+class TemporalConflict(BaseModel):
+    """
+    Explicitly recorded cross-modal boundary disagreement or span discrepancy.
+    """
+    event_region_id: str = Field(..., description="ID of the event region where conflict was detected")
+    boundary_type: Literal["start", "end", "interval_breadth"]
+    conflict_type: str = Field(
+        ..., 
+        description="Type of conflict, e.g. 'early_start_disagreement', 'late_end_disagreement', 'broad_vs_narrow_interval'"
+    )
+    early_proposals: List[BoundaryProposalRef] = Field(default_factory=list)
+    late_proposals: List[BoundaryProposalRef] = Field(default_factory=list)
+    temporal_delta_sec: float
+    description: str
+
+
+class EventRegion(BaseModel):
+    """
+    Coherent temporal region formed by temporally overlapping / compatible proposals across modalities.
+    Prevents cross-pairing boundaries of unrelated events.
+    """
+    region_id: str
+    start_time: float
+    end_time: float
+    member_proposal_ids: List[str] = Field(default_factory=list)
+    contributing_experts: List[str] = Field(default_factory=list)
+
+
+class CandidateSupportMetrics(BaseModel):
+    """
+    Explicit per-modality support and multi-factor evaluation metrics for a candidate interval.
+    Preserves distinct modality contributions without premature uninspectable scalar collapse.
+    """
+    transcript_support: float = 0.0
+    conversation_support: float = 0.0
+    visual_support: float = 0.0
+    prosody_support: float = 0.0
+
+    # Explicit per-modality temporal overlap & coverage
+    transcript_iou: float = 0.0
+    conversation_iou: float = 0.0
+    visual_iou: float = 0.0
+    prosody_iou: float = 0.0
+    transcript_coverage: float = 0.0
+    conversation_coverage: float = 0.0
+    visual_coverage: float = 0.0
+    prosody_coverage: float = 0.0
+
+    # Separated boundary evidence types
+    boundary_activity_support: float = Field(
+        0.0, 
+        description="Evidence that physical acoustic/visual activity or scene transitions occur near boundary"
+    )
+    linguistic_boundary_support: float = Field(
+        0.0, 
+        description="Evidence that boundary coincides with a spoken word timestamp or speech segment onset/offset (linguistic/temporal alignment only, not independent semantic understanding)"
+    )
+
+    # Modality presence vs support strength distinction
+    modalities_present: List[str] = Field(default_factory=list, description="Modalities with coverage > 0")
+    strong_support_modalities: List[str] = Field(default_factory=list, description="Modalities with support >= 0.50")
+    moderate_support_modalities: List[str] = Field(default_factory=list, description="Modalities with 0.20 <= support < 0.50")
+    weak_support_modalities: List[str] = Field(default_factory=list, description="Modalities with 0.05 <= support < 0.20")
+
+    modality_diversity: float = 0.0
+    boundary_agreement: float = 0.0
+    inherited_contextual_evidence: float = Field(
+        0.0, 
+        description="Normalized score of contextual completeness evidence inherited from W3 proposals"
+    )
+    conflict_penalty: float = 0.0
+    duration_penalty: float = 0.0
+    composite_score: float = Field(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description="Composite evidence strength score explicitly bounded to [0.0, 1.0] via max(0.0, min(1.0, raw_composite)) for all evaluated candidates"
+    )
+
+
 class SemanticVerificationCriteria(BaseModel):
     """
-    Explicit checklist verifying contextual completeness and semantic integrity.
+    Checklist of contextual completeness evidence inherited from contributing expert proposals
+    (not an independent verification).
     """
     natural_semantic_start: bool = Field(
         ..., 
-        description="True if the segment starts at a natural thought/clause onset"
+        description="True if start aligns near a spoken word or speech segment onset"
     )
     sufficient_context: bool = Field(
         ..., 
-        description="True if the premise or setup is understandable without preceding context"
+        description="True if overlapping transcript proposal has contextual_completeness >= threshold and self_contained == True"
     )
     important_content_retained: bool = Field(
         ..., 
-        description="True if key thematic or conversational content is preserved"
+        description="True if key thematic or conversational content from the region is within the candidate"
     )
     complete_conversational_payoff: bool = Field(
         ..., 
-        description="True if the resolution, punchline, or core insight is completed"
+        description="True if discourse_unit_complete or payoff phase is completed"
     )
     no_mid_sentence_ending: bool = Field(
         ..., 
-        description="True if the segment avoids cutting off mid-sentence or mid-thought"
+        description="True if candidate avoids cutting off mid-word or mid-utterance"
+    )
+    inherited_from_proposals: List[str] = Field(
+        default_factory=list,
+        description="List of proposal IDs from which these contextual features were extracted"
     )
 
 
@@ -274,29 +383,72 @@ class MTERCandidate(BaseModel):
     proposed_start: float = Field(..., description="Continuous start timestamp in seconds")
     proposed_end: float = Field(..., description="Continuous end timestamp in seconds")
     duration: float
+    confidence_estimate: float = Field(
+        ..., 
+        ge=0.0, 
+        le=1.0, 
+        description="Normalized evidence strength estimate (0.0 to 1.0)"
+    )
     contributing_experts: List[Literal["transcript", "visual", "prosody", "conversation"]]
     temporal_agreement_iou: float = Field(
         ..., 
         ge=0.0, 
         le=1.0, 
-        description="Intersection-over-Union across overlapping contributing expert proposals"
+        description="Mean Intersection-over-Union across overlapping active expert proposals"
     )
+    modality_ious: Dict[str, float] = Field(default_factory=dict)
+    modality_coverages: Dict[str, float] = Field(default_factory=dict)
+    boundary_activity_support: float = 0.0
+    linguistic_boundary_support: float = 0.0
+
+    # Modality presence vs support strength
+    modalities_present: List[str] = Field(default_factory=list)
+    strong_support_modalities: List[str] = Field(default_factory=list)
+    moderate_support_modalities: List[str] = Field(default_factory=list)
+    weak_support_modalities: List[str] = Field(default_factory=list)
+
+    support_metrics: Optional[CandidateSupportMetrics] = None
     conflict_notes: List[str] = Field(
         default_factory=list, 
-        description="Notes on cross-modal disagreements or discrepancies"
+        description="Notes on cross-modal disagreements affecting this candidate"
     )
+    detected_conflicts_count: int = 0
+    conflicts_affecting_candidate_count: int = 0
+    unresolved_conflicts_count: int = 0
     semantic_verification: SemanticVerificationCriteria
     semantic_verification_status: Literal["passed", "flagged", "pending"]
-    reasoning_trace: str = Field(
+    decision_summary: str = Field(
         ..., 
-        description="Programmatic trace documenting how this candidate was selected"
+        description="Concise evidence summary explaining the rationale for selecting this candidate"
     )
+
+
+class EvidenceLedger(BaseModel):
+    """
+    Inspectable evidence ledger recording all intermediate reasoning, clustering,
+    conflicts, rejected candidates, and the selected highlight boundary.
+    """
+    run_id: str
+    video_duration: float
+    total_proposals: int
+    event_regions: List[EventRegion] = Field(default_factory=list)
+    start_clusters: List[BoundaryCluster] = Field(default_factory=list)
+    end_clusters: List[BoundaryCluster] = Field(default_factory=list)
+    conflicts: List[TemporalConflict] = Field(default_factory=list)
+    total_detected_conflicts: int = 0
+    conflicts_affecting_candidate: List[TemporalConflict] = Field(default_factory=list)
+    unresolved_conflicts_affecting_candidate: List[TemporalConflict] = Field(default_factory=list)
+    rejected_intervals: List[Dict[str, Any]] = Field(default_factory=list)
+    evaluated_candidates: List[Dict[str, Any]] = Field(default_factory=list)
+    selected_candidate: Optional[MTERCandidate] = None
+    decision_summary: str = ""
 
 
 class MTEROutput(BaseModel):
-    """Final output of MTER containing selected candidates prior to boundary optimization."""
+    """Final output of MTER containing selected candidates and reasoning ledger."""
     video_id: str
     candidates: List[MTERCandidate] = Field(default_factory=list)
+    ledger: Optional[EvidenceLedger] = None
     execution_time_sec: float
 
 

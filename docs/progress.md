@@ -127,3 +127,44 @@
 
 ### Supporting Engineering:
 - Implemented frontend dashboard interface, client workspace, clip display component, Polar billing integration, S3 media upload actions, and Inngest background job processing pipelines.
+
+## W5 — 07 Sep – 13 Sep 2026
+**Milestone: Integration of independent temporal evidence from the four modality-specific experts and development of an initial Multimodal Temporal Evidence Reasoner (MTER) for explicit boundary agreement and conflict analysis**
+
+### Scope & Architectural Boundary:
+- **W5 Scope**: Connecting independent temporal evidence streams from the four modality-specific experts (Transcript, Conversation, Visual, Prosody) into a unified `CommonEvidenceBundle` and implementing an initial programmatic Multimodal Temporal Evidence Reasoner (MTER) prototype.
+- **Strict Evidence Preservation**:
+  - Maintained total separation of the four expert evidence bundles without premature scalar score averaging or confidence collapse.
+  - Authoritative timestamps strictly preserved as continuous floating-point seconds.
+  - Auxiliary temporal grid (1.0s bins) implemented solely as an indexing/lookup aid without overwriting continuous coordinates.
+- **Explicit Boundary Adherence**:
+  - No fine-grained boundary search (±1s/±2s local audio search), subtitle-aware trimming, dead-air trimming, final clip rendering, final highlight ranking, benchmark superiority, or viewer retention claims were made or implemented.
+  - MTER operates as a fully deterministic, programmatic reasoner without an opaque LLM making boundary decisions.
+  - Intermediate evidence remains completely inspectable via an `EvidenceLedger` to facilitate future ablation experiments comparing individual modalities and reasoner configurations.
+
+### Research & Reasoning Accomplishments:
+- **Evidence Bundle & Temporal Normalization (`pipeline/mter/evidence_bundle.py`)**:
+  - Implemented `build_common_evidence_bundle` and `load_evidence_bundle_from_run` ingesting `transcript_evidence.json`, `conversation_evidence.json`, `visual_evidence.json`, and `prosody_evidence.json`.
+  - Built `AuxiliaryTemporalGrid` for temporal binning while preserving continuous float boundaries.
+- **Event-Region Grouping & Temporal Compatibility (`pipeline/mter/clustering.py`)**:
+  - Implemented graph connected components with temporal compatibility rules (`event_compatibility_min_iou: 0.15`, `event_compatibility_min_overlap_ratio: 0.45`, `event_compatibility_max_center_gap_sec: 20.0s`).
+  - Fixed proposal daisy-chaining: broad proposals no longer collapse all 14 input proposals into one giant region. Instead, 3 coherent event regions are formed (Region 0: 0.0s–27.27s, Region 1: 24.57s–71.56s, Region 2: 68.27s–89.87s).
+- **Intra-Region Boundary Clustering & Conflict Scoping (`pipeline/mter/clustering.py`)**:
+  - Boundary clustering runs strictly per event region with `boundary_cluster_tolerance_sec = 3.0s`.
+  - Conflict detection is strictly scoped per event region: every conflict records `event_region_id`.
+  - Candidate conflict filtering guarantees candidates in Region 0 never report conflicts against distant proposals (e.g. at 89.865s in Region 2).
+  - Proposal reference integrity verified: proposal IDs and timestamps resolve directly to the referenced proposal object (e.g. `transcript_prop_2` [the 3rd proposal] with timestamp 89.865s).
+- **MTER Reasoner Prototype & Metrics Clarification (`pipeline/mter/reasoner.py`)**:
+  - Implemented a deterministic, internally consistent MTER prototype with inspectable evidence and configurable heuristic parameters.
+  - Documented that all heuristic weights and thresholds in `MTERConfig` are configurable prototype parameters, not learned weights or empirically validated research constants.
+  - Explicitly bounded `CompositeScore` to $[0.0, 1.0]$ via $\max(0.0, \min(1.0, \text{RawCompositeScore}(I)))$ for ALL evaluated candidates, justifying "Normalized Evidence Strength" as a normalized relative consensus metric rather than a calibrated probability.
+  - Renamed `semantic_boundary_support` to `linguistic_boundary_support`, documented strictly as word timestamp and speech segment onset/offset alignment evidence rather than independent semantic verification.
+  - Separated modality presence (`modalities_present`) from support strength tiers (`strong_support_modalities` $\ge 0.50$, `moderate_support_modalities` $0.20 \le s < 0.50$, `weak_support_modalities` $0.05 \le s < 0.20$).
+  - Preserved transparent, inspectable decision summary and full `EvidenceLedger`.
+- **Diagnostic Result Preservation**:
+  - Retained the current selected candidate `[0.030s -> 26.106s]` without artificial weight tuning to force a visually or semantically preferred answer.
+  - Recorded it as a representative diagnostic result demonstrating cross-modal boundary disagreement (early acoustic/visual activity convergence at 0.030s vs. delayed spoken sentence onset at 5.975s).
+- **Verification & Demonstration**:
+  - Comprehensive unit test suites (`tests/test_evidence_bundle.py` and `tests/test_mter.py`) verifying non-chaining event grouping, candidate-scoped conflict isolation, proposal reference integrity, explicit bounding of composite scores to $[0.0, 1.0]$ across all candidates, modality presence vs. strength separation, modality separation, continuous timestamps, auxiliary grid lookup, cross-event pairing prevention, unimodal candidate preservation, multimodal candidate preference, determinism, and rejection logging.
+  - Complete regression suite passing: 46 tests across W1, W2, W3, W4, and W5.
+  - Representative validation runner `tests/run_w5_mter_validation.py` executed on `runs/representative_90s_validation/`, generating structured inspectable artifacts `mter_output.json` and `mter_ledger.json`.

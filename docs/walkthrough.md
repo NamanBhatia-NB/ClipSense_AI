@@ -461,3 +461,253 @@ Evidence artifacts successfully saved:
 [✓] ALL W4 EVIDENCE CHECKS PASSED (Visual & Prosody candidates verified)!
 ```
 
+---
+
+# Walkthrough - ClipSense W5: Evidence Integration + MTER Prototype
+
+## Milestone Overview
+**W5**: Initial deterministic Multimodal Temporal Evidence Reasoner (MTER) prototype integrating independent temporal evidence from the four modality-specific experts for explicit boundary agreement and conflict analysis.
+
+> [!NOTE]
+> **Prototype Parameter Status**: The scoring weights and linear combination parameters implemented in W5 ($w_{mod}=0.30, w_{div}=0.25, w_{bnd}=0.20, w_{ctx}=0.20, w_{cnf}=0.15, w_{dur}=0.05$) are prototype/configuration parameters that require empirical evaluation in downstream benchmark experiments. They represent configurable hypothesis weights rather than fixed research constants.
+
+## Key Principles & Scope Boundaries
+- **Strict Evidence Preservation**:
+  - The four evidence streams (transcript, conversation, visual, prosody) are held separately in `CommonEvidenceBundle`.
+  - Authoritative timestamps strictly preserved as continuous floating-point seconds without rounding or 1-second grid snapping.
+  - Auxiliary temporal grid (1.0s bins) operates solely as an indexing/lookup aid.
+- **Event-Region Boundary Pairing**:
+  - Proposals are grouped into temporally coherent `EventRegion` connected components based on continuous temporal overlap (`event_merge_gap_sec = 2.0s`).
+  - Candidate intervals are generated exclusively within the same event region, strictly preventing cross-pairing between unrelated events.
+- **Inspectable Support & Unimodal Preservation**:
+  - No scalar score collapse at boundary clustering; clusters retain member proposal references.
+  - Unimodal candidates are preserved rather than rejected by hard filters.
+  - Evaluation maintains explicit separate metrics: `transcript_support`, `conversation_support`, `visual_support`, `prosody_support`, `transcript_iou`, `conversation_iou`, `visual_iou`, `prosody_iou`, `boundary_activity_support`, `semantic_boundary_support`, `modality_diversity`, `boundary_agreement`, `inherited_contextual_evidence`, `conflict_penalty`, and `duration_penalty`.
+- **Ablation Readiness**:
+  - `MTERConfig` supports configurable ablation modes (`transcript_only`, `transcript_conversation`, `transcript_conversation_visual`, `transcript_conversation_prosody`, `mter_full`) enabling isolated modality experiments without codebase changes.
+- **Deferred Functionality**:
+  - Fine-grained boundary optimization (±1s/±2s local audio search), subtitle-aware trimming, dead-air trimming, final clip rendering, and frontend changes remain deferred to downstream milestones.
+
+## Evaluation Model & Configurable Prototype Parameters
+
+Architecture Description:
+**Deterministic, internally consistent MTER prototype with inspectable evidence and configurable heuristic parameters.**
+
+For any valid candidate interval $I = [s, e]$ of duration $D = e - s$ formed from start cluster $S$ and end cluster $T$ within an event region:
+
+$$\text{RawCompositeScore}(I) = w_{mod} \cdot \bar{S}_{mod} + w_{div} \cdot D_{mod} + w_{bnd} \cdot A_{bnd} + w_{ctx} \cdot C_{ctx} - w_{cnf} \cdot P_{cnf} - w_{dur} \cdot P_{dur}$$
+
+$$\text{CompositeScore}(I) = \max(0.0, \min(1.0, \text{RawCompositeScore}(I)))$$
+
+### Bounding Guarantee to [0.0, 1.0]:
+- The positive terms have maximum potential sum:
+  $$w_{mod} (0.30) + w_{div} (0.25) + w_{bnd} (0.20) + w_{ctx} (0.20) = 0.95 \le 1.0$$
+- The subtractive penalties can subtract up to:
+  $$w_{cnf} (0.15) + w_{dur} (0.05) = 0.20$$
+- Thus $\text{RawCompositeScore}(I)$ falls strictly within $[-0.20, 0.95]$.
+- The explicit bounding operation $\max(0.0, \min(1.0, \text{RawCompositeScore}(I)))$ is evaluated for **EVERY** candidate interval, explicitly guaranteeing that $\text{CompositeScore}(I) \in [0.0, 1.0]$ for all evaluated candidates.
+- "Normalized Evidence Strength" is justified because the output score represents a normalized relative consensus metric on $[0.0, 1.0]$ (where $0.0$ indicates zero evidence support or complete penalty, and $1.0$ represents maximal multi-expert consensus), NOT a calibrated probability.
+
+### Components of the Formula:
+1. **Modality Coverage Support ($\bar{S}_{mod}$)**: Mean coverage across the 4 modalities:
+   $$\text{support}_m = \max_{p \in \text{props}(m)} \left( \text{confidence}(p) \times \min\left(1.0, \frac{|p \cap I|}{D}\right) \right)$$
+2. **Modality Diversity ($D_{mod}$)**: Fraction of modalities with $\text{support}_m \ge 0.05$.
+3. **Boundary Agreement ($A_{bnd}$)**: Multi-expert support and tightness:
+   $$A_{bnd} = \frac{1}{2} \left( \frac{|\text{experts}(S)|}{4} \cdot \frac{1}{1 + \text{spread}(S)} + \frac{|\text{experts}(T)|}{4} \cdot \frac{1}{1 + \text{spread}(T)} \right)$$
+4. **Separated Boundary Evidence**:
+   - $\text{boundary\_activity\_support}$: Presence of visual shifts or prosodic vocal emphasis near $s$ or $e$.
+   - $\text{linguistic\_boundary\_support}$: Presence of spoken word alignment or speech segment boundary near $s$ or $e$ (measures linguistic/temporal alignment of speech timestamps only, not independent semantic verification).
+5. **Inherited Contextual Evidence ($C_{ctx}$)**: Normalized checklist of contextual completeness features inherited from contributing W3 proposals (not an independent LLM verification).
+6. **Conflict Penalty ($P_{cnf}$)**: Penalizes unresolved discrepancies affecting candidate boundaries.
+7. **Duration Penalty ($P_{dur}$)**: Secondary soft preference tie-breaker ($|D - D_{target}| / D_{max}$).
+
+### Configurable Prototype Parameters:
+All weights and thresholds in `MTERConfig` are documented as **configurable prototype parameters**, not learned weights or empirically validated research constants:
+- $w_{mod} = 0.30$, $w_{div} = 0.25$, $w_{bnd} = 0.20$, $w_{ctx} = 0.20$, $w_{cnf} = 0.15$, $w_{dur} = 0.05$.
+
+## Components Implemented
+
+### 1. Evidence Bundle Builder & Loader (`pipeline/mter/evidence_bundle.py`)
+- `build_common_evidence_bundle`: Assembles `CommonEvidenceBundle` across all 4 modalities and builds `AuxiliaryTemporalGrid`.
+- `load_evidence_bundle_from_run`: Reads `transcript_evidence.json`, `conversation_evidence.json`, `visual_evidence.json`, and `prosody_evidence.json` from a run directory, handling missing bundles with empty defaults.
+
+### 2. Event Grouping, Boundary Clustering & Conflict Detection (`pipeline/mter/clustering.py`)
+- `group_proposals_into_event_regions`: Constructs an undirected temporal compatibility graph ($\text{IoU} \ge 0.15$ OR $[\text{overlap\_ratio} \ge 0.45 \land \text{center\_gap} \le 20.0\text{s}]$) and finds connected components. Prevents broad proposals from daisy-chaining unrelated events into a single region.
+- `cluster_boundary_candidates`: Performs 1D greedy deterministic clustering (`tolerance_sec = 3.0s`) on start and end boundaries, tracking distinct supporting experts and spread without collapsing confidence scores.
+- `detect_evidence_conflicts`: Scoped strictly per event region. Every conflict records `event_region_id`. Guarantees proposal reference integrity (timestamps and proposal IDs resolve directly to the referenced proposal object).
+
+### 3. MTER Prototype Reasoner (`pipeline/mter/reasoner.py`)
+- `MTERReasoner`:
+  - Evaluates candidate spans within their compatible event region, enforcing duration limits ($10.0\text{s} \le dur \le 60.0\text{s}$).
+  - Separates boundary activity support from linguistic boundary support.
+  - Distinguishes modality presence (`modalities_present`) from support strength tiers (`strong`, `moderate`, `weak`).
+  - Scopes conflicts strictly to the candidate's event region and competing boundaries.
+  - Retains diagnostic candidate `[0.030s -> 26.106s]` demonstrating cross-modal boundary disagreement without artificial weight tuning.
+  - Produces structured `MTEROutput` and inspectable `EvidenceLedger` with concise `decision_summary`.
+
+### 4. Automated Verification Suites
+- `tests/test_evidence_bundle.py`: 5 unit tests validating modality separation, continuous timestamps, auxiliary grid indexing, missing bundle resilience, and disk loading parity.
+- `tests/test_mter.py`: 13 unit tests validating non-chaining event grouping, candidate-scoped conflict isolation, proposal reference integrity, explicit bounding of composite scores to $[0.0, 1.0]$ across all candidates, unimodal candidate preservation, multimodal convergence preference, per-modality support visibility, linguistic boundary support, modality presence vs. strength, ablation modes, determinism, rejection logging, and conflict detection.
+- Complete regression suite verified: 46 tests across W1, W2, W3, W4, and W5 passing in under 1 second.
+
+## Representative Validation Results (`tests/run_w5_mter_validation.py`)
+
+Executed against representative 90s validation run (`runs/representative_90s_validation/`):
+
+```text
+[✓] Transcript evidence loaded
+[✓] Conversation evidence loaded
+[✓] Visual evidence loaded
+[✓] Prosody evidence loaded
+[✓] Evidence bundle created
+[✓] Boundary candidates generated
+[✓] Agreement analysis complete
+[✓] Conflict analysis complete
+[✓] MTER candidate generated
+[✓] MTER result validated
+
+======================================================================
+CLIPSENSE W5: MTER REPRESENTATIVE REASONING INSPECTION
+======================================================================
+
+--- 1. INPUT EXPERT EVIDENCE PROPOSALS ---
+Total Input Proposals: 14
+  * Transcript Expert (3 proposals):
+    - [5.975s -> 24.548s] (dur: 18.57s, conf: 0.90, type: explanatory_claim)
+    - [24.568s -> 48.014s] (dur: 23.45s, conf: 0.85, type: explanatory_claim)
+    - [68.272s -> 89.865s] (dur: 21.59s, conf: 0.90, type: explanatory_claim)
+  * Conversation Expert (2 proposals):
+    - [0.091s -> 27.269s] (dur: 27.18s, conf: 0.90, type: monologue_thematic_unit)
+    - [28.471s -> 71.557s] (dur: 43.09s, conf: 0.85, type: monologue_thematic_unit)
+  * Visual Expert (4 proposals):
+    - [0.000s -> 10.000s] (dur: 10.00s, conf: 0.39, type: visual_shift)
+    - [10.000s -> 20.000s] (dur: 10.00s, conf: 0.19, type: visual_activity)
+    - [32.000s -> 42.000s] (dur: 10.00s, conf: 0.64, type: scene_transition_density)
+    - [46.000s -> 63.000s] (dur: 17.00s, conf: 0.77, type: scene_transition_density)
+  * Prosody Expert (5 proposals):
+    - [0.000s -> 10.000s] (dur: 10.00s, conf: 0.54, type: vocal_emphasis)
+    - [16.500s -> 26.500s] (dur: 10.00s, conf: 0.51, type: vocal_emphasis)
+    - [33.500s -> 43.500s] (dur: 10.00s, conf: 0.52, type: vocal_emphasis)
+    - [51.000s -> 61.000s] (dur: 10.00s, conf: 0.50, type: vocal_emphasis)
+    - [70.000s -> 80.000s] (dur: 10.00s, conf: 0.45, type: vocal_emphasis)
+
+--- 2. COHERENT EVENT REGIONS (GRAPH CONNECTED COMPONENTS) ---
+Total Event Regions: 3
+
+Event Region event_region_0:
+  temporal span: [0.000s -> 27.269s] (total span: 27.27s)
+  contributing experts: ['conversation', 'prosody', 'transcript', 'visual']
+  proposals: ['visual_prop_1', 'prosody_prop_1', 'conversation_prop_0', 'transcript_prop_0', 'visual_prop_2', 'prosody_prop_2']
+
+Event Region event_region_1:
+  temporal span: [24.568s -> 71.557s] (total span: 46.99s)
+  contributing experts: ['conversation', 'prosody', 'transcript', 'visual']
+  proposals: ['transcript_prop_1', 'conversation_prop_1', 'visual_prop_3', 'prosody_prop_3', 'visual_prop_4', 'prosody_prop_4']
+
+Event Region event_region_2:
+  temporal span: [68.272s -> 89.865s] (total span: 21.59s)
+  contributing experts: ['prosody', 'transcript']
+  proposals: ['transcript_prop_2', 'prosody_prop_5']
+
+--- 3. START-BOUNDARY CLUSTERS (PER REGION) ---
+Total Start Clusters: 10
+  * r0_start_0: center=0.030s (range: [0.000s -> 0.091s], spread: 0.09s, experts: ['conversation', 'prosody', 'visual'])
+  * r0_start_1: center=5.975s (range: [5.975s -> 5.975s], spread: 0.00s, experts: ['transcript'])
+  * r0_start_2: center=10.000s (range: [10.000s -> 10.000s], spread: 0.00s, experts: ['visual'])
+  * r0_start_3: center=16.500s (range: [16.500s -> 16.500s], spread: 0.00s, experts: ['prosody'])
+  * r1_start_0: center=24.568s (range: [24.568s -> 24.568s], spread: 0.00s, experts: ['transcript'])
+  * r1_start_1: center=28.471s (range: [28.471s -> 28.471s], spread: 0.00s, experts: ['conversation'])
+  * r1_start_2: center=32.750s (range: [32.000s -> 33.500s], spread: 1.50s, experts: ['prosody', 'visual'])
+  * r1_start_3: center=46.000s (range: [46.000s -> 46.000s], spread: 0.00s, experts: ['visual'])
+  * r1_start_4: center=51.000s (range: [51.000s -> 51.000s], spread: 0.00s, experts: ['prosody'])
+  * r2_start_0: center=69.136s (range: [68.272s -> 70.000s], spread: 1.73s, experts: ['prosody', 'transcript'])
+
+--- 4. END-BOUNDARY CLUSTERS (PER REGION) ---
+Total End Clusters: 9
+  * r0_end_0: center=10.000s (range: [10.000s -> 10.000s], spread: 0.00s, experts: ['prosody', 'visual'])
+  * r0_end_1: center=20.000s (range: [20.000s -> 20.000s], spread: 0.00s, experts: ['visual'])
+  * r0_end_2: center=26.106s (range: [24.548s -> 27.269s], spread: 2.72s, experts: ['conversation', 'prosody', 'transcript'])
+  * r1_end_0: center=42.750s (range: [42.000s -> 43.500s], spread: 1.50s, experts: ['prosody', 'visual'])
+  * r1_end_1: center=48.014s (range: [48.014s -> 48.014s], spread: 0.00s, experts: ['transcript'])
+  * r1_end_2: center=62.000s (range: [61.000s -> 63.000s], spread: 2.00s, experts: ['prosody', 'visual'])
+  * r1_end_3: center=71.557s (range: [71.557s -> 71.557s], spread: 0.00s, experts: ['conversation'])
+  * r2_end_0: center=80.000s (range: [80.000s -> 80.000s], spread: 0.00s, experts: ['prosody'])
+  * r2_end_1: center=89.865s (range: [89.865s -> 89.865s], spread: 0.00s, experts: ['transcript'])
+
+--- 5. CROSS-MODAL CONFLICTS DETECTED (PER REGION) ---
+Total Detected Conflicts Across Regions: 6
+  * [event_region_0 | END] late_end_disagreement (delta: 17.27s):
+    End boundary discrepancy of 17.27s in event_region_0: prosody (prosody_prop_1) ends early at 10.000s while conversation (conversation_prop_0) extends later to 27.269s.
+  * [event_region_0 | INTERVAL_BREADTH] broad_vs_narrow_interval (delta: 17.18s):
+    Interval breadth disparity in event_region_0: conversation (conversation_prop_0) spans 27.18s [0.091s -> 27.269s] whereas prosody (prosody_prop_1) proposes a localized 10.00s interval [0.000s -> 10.000s].
+  * [event_region_1 | START] early_start_disagreement (delta: 26.43s):
+    Start boundary discrepancy of 26.43s in event_region_1: transcript (transcript_prop_1) starts early at 24.568s while prosody (prosody_prop_4) starts later at 51.000s.
+  * [event_region_1 | END] late_end_disagreement (delta: 29.56s):
+    End boundary discrepancy of 29.56s in event_region_1: visual (visual_prop_3) ends early at 42.000s while conversation (conversation_prop_1) extends later to 71.557s.
+  * [event_region_1 | INTERVAL_BREADTH] broad_vs_narrow_interval (delta: 33.09s):
+    Interval breadth disparity in event_region_1: conversation (conversation_prop_1) spans 43.09s [28.471s -> 71.557s] whereas prosody (prosody_prop_3) proposes a localized 10.00s interval [33.500s -> 43.500s].
+  * [event_region_2 | END] late_end_disagreement (delta: 9.86s):
+    End boundary discrepancy of 9.86s in event_region_2: prosody (prosody_prop_5) ends early at 80.000s while transcript (transcript_prop_2) extends later to 89.865s.
+
+--- 6. EVALUATED CANDIDATE SPANS ---
+Total Evaluated Candidates: 24
+  * [0.030s -> 20.000s] in event_region_0 (dur: 19.97s) | Score: 0.495
+    Modality Coverage: transcript=0.70, conversation=1.00, visual=0.50, prosody=0.50
+    Modality IoU: transcript=0.57, conversation=0.73, visual=0.50, prosody=0.50
+    Boundary Support: activity=0.36, linguistic=0.45 | Agreement: 0.47
+    Diversity: 100% | Inherited Contextual Evidence: 80%
+  * [0.030s -> 26.106s] in event_region_0 (dur: 26.08s) | Score: 0.528
+    Modality Coverage: transcript=0.71, conversation=1.00, visual=0.38, prosody=0.38
+    Modality IoU: transcript=0.71, conversation=0.96, visual=0.38, prosody=0.38
+    Boundary Support: activity=0.53, linguistic=0.90 | Agreement: 0.44
+    Diversity: 100% | Inherited Contextual Evidence: 100%
+  * [5.975s -> 20.000s] in event_region_0 (dur: 14.03s) | Score: 0.453
+    Modality Coverage: transcript=1.00, conversation=1.00, visual=0.71, prosody=0.29
+    Modality IoU: transcript=0.76, conversation=0.52, visual=0.71, prosody=0.20
+    Boundary Support: activity=0.10, linguistic=0.45 | Agreement: 0.25
+    Diversity: 100% | Inherited Contextual Evidence: 80%
+  * [5.975s -> 26.106s] in event_region_0 (dur: 20.13s) | Score: 0.492
+    Modality Coverage: transcript=0.92, conversation=1.00, visual=0.50, prosody=0.48
+    Modality IoU: transcript=0.92, conversation=0.74, visual=0.50, prosody=0.47
+    Boundary Support: activity=0.26, linguistic=0.90 | Agreement: 0.23
+    Diversity: 100% | Inherited Contextual Evidence: 100%
+  * [10.000s -> 20.000s] in event_region_0 (dur: 10.00s) | Score: 0.456
+    Modality Coverage: transcript=1.00, conversation=1.00, visual=1.00, prosody=0.35
+    Modality IoU: transcript=0.54, conversation=0.37, visual=1.00, prosody=0.21
+    Boundary Support: activity=0.19, linguistic=0.00 | Agreement: 0.25
+    Diversity: 100% | Inherited Contextual Evidence: 80%
+
+--- 7. SELECTED MTER CANDIDATE ---
+  Candidate ID: mter_cand_event_region_0_0.03_26.11
+  Continuous Boundaries: [0.030s -> 26.106s]
+  Duration: 26.08s
+  Normalized Evidence Strength (Score): 0.528
+  Temporal Agreement IoU: 0.608
+  Contributing Experts: ['transcript', 'conversation', 'visual', 'prosody']
+  Modality Presence vs Support Strength:
+    - Modalities with evidence: 4/4 (transcript, conversation, visual, prosody)
+    - Strong support (>= 0.50): transcript, conversation
+    - Moderate support (0.20 - 0.50): prosody
+    - Weak/secondary support (0.05 - 0.20): visual
+  Per-Modality Support Values:
+    transcript=0.641, conversation=0.898, visual=0.149, prosody=0.206
+  Modality Coverage: {'transcript': 0.71, 'conversation': 1.00, 'visual': 0.38, 'prosody': 0.38}
+  Modality IoU: {'transcript': 0.71, 'conversation': 0.96, 'visual': 0.38, 'prosody': 0.38}
+  Boundary Evidence Separation: activity_support=0.53, linguistic_support=0.90
+  Candidate Conflict Breakdown (Strictly Scoped):
+    - Total Detected in Region: 6
+    - Affecting Selected Candidate: 2
+    - Unresolved for Candidate: 2
+  Conflicts Affecting Selected Candidate:
+    * [event_region_0 | END] late_end_disagreement (17.27s): End boundary discrepancy of 17.27s in event_region_0: prosody (prosody_prop_1) ends early at 10.000s while conversation (conversation_prop_0) extends later to 27.269s.
+    * [event_region_0 | INTERVAL_BREADTH] broad_vs_narrow_interval (17.18s): Interval breadth disparity in event_region_0: conversation (conversation_prop_0) spans 27.18s [0.091s -> 27.269s] whereas prosody (prosody_prop_1) proposes a localized 10.00s interval [0.000s -> 10.000s].
+  Inherited Contextual Checks: natural_start=True, context=True, payoff=True, no_mid_sentence=True
+  Final Decision Summary: Interval [0.030s -> 26.106s] (26.08s) in event_region_0 selected with composite evidence strength 0.53. Modalities with evidence: 4/4 (transcript, conversation, visual, prosody). Support strength breakdown: Strong: transcript, conversation | Moderate: prosody | Weak/secondary: visual. Coverage: transcript=0.71, conversation=1.00, visual=0.38, prosody=0.38. Modality IoU: transcript=0.71, conversation=0.96, visual=0.38, prosody=0.38 (mean active IoU: 0.61). Boundary support: activity=0.53, linguistic=0.90 | Boundary agreement tightness: 0.44. Inherited contextual evidence: 100%. Conflicts: 6 detected in region, 2 affecting candidate, 2 unresolved. Unresolved conflict notes: End boundary discrepancy of 17.27s in event_region_0: prosody (prosody_prop_1) ends early at 10.000s while conversation (conversation_prop_0) extends later to 27.269s.; Interval breadth disparity in event_region_0: conversation (conversation_prop_0) spans 27.18s [0.091s -> 27.269s] whereas prosody (prosody_prop_1) proposes a localized 10.00s interval [0.000s -> 10.000s].
+
+Artifacts successfully saved:
+  - runs/representative_90s_validation/mter_output.json
+  - runs/representative_90s_validation/mter_ledger.json
+
+[✓] ALL W5 MTER VALIDATION CHECKS PASSED!
+```
+

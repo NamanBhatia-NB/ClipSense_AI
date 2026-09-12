@@ -67,7 +67,7 @@ Final Short Clip
 
 ## W1 Deliverables
 
-### `ai-podcast-clipper-backend/`
+### `backend/`
 
 - `core/schemas.py`: Pydantic contracts for extraction, 4 independent experts, proposals, continuous timestamps, evidence bundles, and MTER criteria.
 - `app/config.py`: Centralized configurable thresholds and baseline parameters.
@@ -80,7 +80,7 @@ Final Short Clip
 
 ## W2 Deliverables
 
-### `ai-podcast-clipper-backend/`
+### `backend/`
 
 - `pipeline/extraction/transcript_extractor.py`: WhisperX transcription and forced alignment with word-level continuous timestamps, speaker metadata, PyTorch 2.6+ checkpoint compatibility patch, and strict mode.
 - `pipeline/extraction/frame_extractor.py`: Uniform frame sampling (1 fps) and scene cut detection preserving frame-level continuous timestamps.

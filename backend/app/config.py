@@ -10,8 +10,11 @@ Central configuration module holding:
 """
 
 import os
-from typing import Optional
+from typing import List, Literal, Optional
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+
+load_dotenv()
 
 
 class ProsodyConfig(BaseModel):
@@ -154,6 +157,107 @@ class LLMConfig(BaseModel):
     max_retries: int = Field(3, description="Retry count for transient rate limits or server errors")
 
 
+class MTERConfig(BaseModel):
+    """
+    Configurable prototype heuristic parameters for the Multimodal Temporal Evidence Reasoner (MTER).
+    
+    NOTE: All weights, tolerances, and thresholds defined here are configurable prototype
+    heuristic parameters intended for transparent cross-modal evidence reasoning and future
+    ablation studies; they are not learned parameters or empirically validated research constants.
+    """
+    ablation_mode: Literal[
+        "mter_full",
+        "transcript_only",
+        "transcript_conversation",
+        "transcript_conversation_visual",
+        "transcript_conversation_prosody",
+        "no_mter_heuristic",
+    ] = Field(
+        "mter_full", 
+        description="Ablation configuration mode for evaluating individual modalities or heuristics"
+    )
+    enabled_modalities: List[str] = Field(
+        default_factory=lambda: ["transcript", "conversation", "visual", "prosody"],
+        description="List of modalities ingested into the reasoning procedure"
+    )
+    event_merge_gap_sec: float = Field(
+        2.0, 
+        description="Temporal gap tolerance in seconds for connecting overlapping proposals into coherent event regions"
+    )
+    event_compatibility_min_iou: float = Field(
+        0.15, 
+        description="Minimum temporal IoU threshold for considering two proposals temporally compatible as the same event"
+    )
+    event_compatibility_min_overlap_ratio: float = Field(
+        0.45, 
+        description="Minimum fraction of the shorter proposal's duration that must overlap with the longer proposal"
+    )
+    event_compatibility_max_center_gap_sec: float = Field(
+        20.0, 
+        description="Maximum distance between proposal temporal midpoints to consider them part of the same event"
+    )
+    boundary_cluster_tolerance_sec: float = Field(
+        3.0, 
+        description="Temporal tolerance in seconds for grouping adjacent boundary candidates"
+    )
+    min_candidate_duration_sec: float = Field(
+        10.0, 
+        description="Minimum acceptable candidate highlight span in seconds"
+    )
+    max_candidate_duration_sec: float = Field(
+        60.0, 
+        description="Maximum acceptable candidate highlight span in seconds"
+    )
+    target_candidate_duration_sec: float = Field(
+        30.0, 
+        description="Ideal target highlight span in seconds (used as a secondary soft preference)"
+    )
+    conflict_threshold_sec: float = Field(
+        4.0, 
+        description="Threshold in seconds above which boundary discrepancies are flagged as major conflicts"
+    )
+    auxiliary_grid_bin_size_sec: float = Field(
+        1.0, 
+        description="Resolution in seconds for the auxiliary lookup/indexing temporal grid"
+    )
+    active_modality_threshold: float = Field(
+        0.05, 
+        description="Coverage support threshold to consider a modality actively contributing to candidate span"
+    )
+    semantic_alignment_tolerance_sec: float = Field(
+        2.0, 
+        description="Temporal tolerance in seconds for verifying boundary alignment against spoken word/pause boundaries"
+    )
+    min_context_completeness_threshold: float = Field(
+        0.70, 
+        description="Minimum completeness score in transcript proposal for sufficient_context check"
+    )
+    weight_modality_support: float = Field(
+        0.30, 
+        description="Configurable prototype weight for mean modality coverage support (not a learned research constant)"
+    )
+    weight_modality_diversity: float = Field(
+        0.25, 
+        description="Configurable prototype weight for cross-modal diversity reward (not a learned research constant)"
+    )
+    weight_boundary_agreement: float = Field(
+        0.20, 
+        description="Configurable prototype weight for start/end cluster tightness (not a learned research constant)"
+    )
+    weight_contextual_completeness: float = Field(
+        0.20, 
+        description="Configurable prototype weight for inherited contextual completeness (not a learned research constant)"
+    )
+    weight_conflict_penalty: float = Field(
+        0.15, 
+        description="Configurable prototype penalty multiplier for unresolved conflicts (not a learned research constant)"
+    )
+    weight_duration_penalty: float = Field(
+        0.05, 
+        description="Configurable prototype soft penalty for deviation from target duration (not a learned research constant)"
+    )
+
+
 class AppConfig(BaseModel):
     """Top-level ClipSense application configuration."""
     auth_token: str = Field(default_factory=lambda: os.getenv("AUTH_TOKEN", "test-secret-token"))
@@ -170,6 +274,7 @@ class AppConfig(BaseModel):
     transcript: TranscriptConfig = Field(default_factory=TranscriptConfig)
     clip_boundary: ClipBoundaryConfig = Field(default_factory=ClipBoundaryConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    mter: MTERConfig = Field(default_factory=MTERConfig)
 
 
 # Global default configuration instance

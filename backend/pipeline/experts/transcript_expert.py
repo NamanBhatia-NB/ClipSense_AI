@@ -21,7 +21,7 @@ import logging
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
-from app.config import config
+from app.config import config as app_config, TranscriptConfig
 from core.llm import LLMClient, get_llm_client
 from core.schemas import (
     ExpertEvidenceBundle,
@@ -95,32 +95,34 @@ class TranscriptExpert(BaseExpert):
     def __init__(
         self,
         llm_client: Optional[LLMClient] = None,
+        config: Optional[Any] = None,
         min_candidate_duration_sec: Optional[float] = None,
         max_candidate_duration_sec: Optional[float] = None,
         window_duration_sec: Optional[float] = None,
         window_overlap_sec: Optional[float] = None,
     ):
-        super().__init__(name="transcript", config=config.transcript)
+        cfg = config or app_config.transcript
+        super().__init__(name="transcript", config=cfg)
         self.llm_client = llm_client or get_llm_client()
         self.min_duration = (
             min_candidate_duration_sec
             if min_candidate_duration_sec is not None
-            else config.transcript.min_candidate_duration_sec
+            else cfg.min_candidate_duration_sec
         )
         self.max_duration = (
             max_candidate_duration_sec
             if max_candidate_duration_sec is not None
-            else config.transcript.max_candidate_duration_sec
+            else cfg.max_candidate_duration_sec
         )
         self.window_duration = (
             window_duration_sec
             if window_duration_sec is not None
-            else config.transcript.window_duration_sec
+            else cfg.window_duration_sec
         )
         self.window_overlap = (
             window_overlap_sec
             if window_overlap_sec is not None
-            else config.transcript.window_overlap_sec
+            else cfg.window_overlap_sec
         )
 
     def evaluate(

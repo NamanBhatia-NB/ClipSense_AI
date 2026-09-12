@@ -12,6 +12,7 @@ Provides a decoupled, provider-agnostic interface for structured LLM inference:
 from abc import ABC, abstractmethod
 import json
 import logging
+import re
 import time
 from typing import Any, Dict, Optional, Type, TypeVar
 from pydantic import BaseModel
@@ -78,7 +79,7 @@ class GeminiLLMClient(LLMClient):
     ) -> T:
         from google.genai import types
 
-        max_retries = self.config.max_retries
+        max_retries = max(self.config.max_retries, 6)
         backoff_sec = 2.0
 
         for attempt in range(max_retries):
@@ -113,12 +114,22 @@ class GeminiLLMClient(LLMClient):
                     for err in ["429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE", "500", "timeout"]
                 )
                 if is_transient and attempt < max_retries - 1:
+                    sleep_time = backoff_sec
+                    # Extract explicit retry delay if provided by Gemini API
+                    match = re.search(r"retry in ([\d\.]+)s", err_str, re.IGNORECASE)
+                    if not match:
+                        match = re.search(r"'retryDelay':\s*'(\d+)s'", err_str)
+                    if match:
+                        sleep_time = float(match.group(1)) + 2.0
+                    elif "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                        sleep_time = max(backoff_sec, 25.0)
+
                     logger.warning(
-                        f"Transient Gemini API error ({err_str[:120]}...). "
-                        f"Retrying in {backoff_sec:.1f}s (attempt {attempt + 1}/{max_retries})..."
+                        f"Transient Gemini rate limit / error detected ({err_str[:120]}...). "
+                        f"Waiting {sleep_time:.1f}s before retry (attempt {attempt + 1}/{max_retries})..."
                     )
-                    time.sleep(backoff_sec)
-                    backoff_sec *= 2.0
+                    time.sleep(sleep_time)
+                    backoff_sec = max(backoff_sec * 2.0, 10.0)
                 else:
                     logger.error(f"Fatal Gemini LLM failure: {e}")
                     raise RuntimeError(f"Gemini LLM inference failed: {e}") from e

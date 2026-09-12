@@ -3,6 +3,11 @@
 .AppleDouble
 .LSOverride
 
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
 # Log files
 *.log
 npm-debug.log*
@@ -10,20 +15,41 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Temporary files
+# Temporary files and extraction workspaces
 *.tmp
 *.swp
 *.swo
 *.swn
 runs/
 **/runs/
+temp/
+**/temp/
+temp_audio/
+**/temp_audio/
+temp_prosody/
+**/temp_prosody/
 
-# Editor directories and files
-.vscode/
-**/.vscode/
-*.sublime-workspace
-
+# Audio & Video media files (prevent committing large binaries)
 *.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.flv
+*.wmv
+*.m4v
+*.wav
+*.mp3
+*.aac
+*.m4a
+*.flac
+*.ogg
+
+# Database files
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.db
 
 # Model weights and checkpoints
 *.pth
@@ -32,7 +58,21 @@ runs/
 *.model
 *.onnx
 
+# Editor directories and files
+.vscode/
+**/.vscode/
+.idea/
+**/.idea/
+*.sublime-workspace
+.amazonq
+
 # Legacy reference files, scratch scripts, and external modules
+backend/main.py
+backend/temp.py
+backend/video_cut.py
+backend/ytdownload.py
+backend/ai eval metrics.png
+backend/asd/
 ai-podcast-clipper-backend/main.py
 ai-podcast-clipper-backend/temp.py
 ai-podcast-clipper-backend/video_cut.py
@@ -40,7 +80,7 @@ ai-podcast-clipper-backend/ytdownload.py
 ai-podcast-clipper-backend/ai eval metrics.png
 ai-podcast-clipper-backend/asd/
 
-# Environment variables
+# Environment variables & secrets
 .env
 *.env
 **/.env
@@ -48,20 +88,39 @@ ai-podcast-clipper-backend/asd/
 !**/.env.example
 
 # Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
 ai-podcast-clipper-frontend/node_modules/
 ai-podcast-clipper-frontend/.next/
 ai-podcast-clipper-frontend/out/
 ai-podcast-clipper-frontend/*.tsbuildinfo
 ai-podcast-clipper-frontend/next-env.d.ts
+**/node_modules/
+**/.next/
+.turbo/
+.vercel/
 
-# Python bytecode and caches
+# Python bytecode, virtual environments, and caches
 **/__pycache__/
 **/*.pyc
 **/*.pyo
 **/*.pyd
+**/.pytest_cache/
+.coverage
+htmlcov/
+**/.venv/
+**/venv/
+**/env/
+backend/.venv/
+backend/venv/
+backend/env/
+backend/.modal*
+backend/brca1_analysis_plot.png
 ai-podcast-clipper-backend/.venv/
 ai-podcast-clipper-backend/venv/
 ai-podcast-clipper-backend/env/
 ai-podcast-clipper-backend/.modal*
 ai-podcast-clipper-backend/brca1_analysis_plot.png
-.amazonq

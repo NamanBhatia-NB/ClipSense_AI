@@ -19,7 +19,7 @@ import logging
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
-from app.config import config
+from app.config import config as app_config, ConversationConfig
 from core.llm import LLMClient, get_llm_client
 from core.schemas import (
     ConversationData,
@@ -95,20 +95,22 @@ class ConversationExpert(BaseExpert):
     def __init__(
         self,
         llm_client: Optional[LLMClient] = None,
+        config: Optional[Any] = None,
         min_candidate_duration_sec: Optional[float] = None,
         max_candidate_duration_sec: Optional[float] = None,
     ):
-        super().__init__(name="conversation", config=config.conversation)
+        cfg = config or app_config.conversation
+        super().__init__(name="conversation", config=cfg)
         self.llm_client = llm_client or get_llm_client()
         self.min_duration = (
             min_candidate_duration_sec
             if min_candidate_duration_sec is not None
-            else config.conversation.min_candidate_duration_sec
+            else cfg.min_candidate_duration_sec
         )
         self.max_duration = (
             max_candidate_duration_sec
             if max_candidate_duration_sec is not None
-            else config.conversation.max_candidate_duration_sec
+            else cfg.max_candidate_duration_sec
         )
 
     def evaluate(
@@ -243,7 +245,7 @@ SPEECH SEGMENTS EXTRACTED WITH SPOKEN TEXT ({len(turns)} segments):
                 grounded_start = float(closest_start_turn.start_time)
                 grounded_end = float(closest_end_turn.end_time)
                 source_type = SourceResolutionType.SPEECH_SEGMENT
-                temporal_res = config.conversation.turn_pause_threshold_sec
+                temporal_res = self.config.turn_pause_threshold_sec
                 if closest_start_turn.turn_index == closest_end_turn.turn_index:
                     anchor_desc = f"speech_segment_{closest_start_turn.turn_index}"
                 else:
