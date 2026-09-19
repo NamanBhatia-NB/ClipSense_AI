@@ -1,0 +1,27 @@
+{
+  "dataset_name": "representative_90s_dev_fixture",
+  "dataset_type": "development",
+  "description": "Development/debug reference annotation on the 90.0s conversational sample. For pipeline code verification only; not benchmark ground truth.",
+  "samples": [
+    {
+      "sample_id": "representative_conversational_90s",
+      "sample_type": "development",
+      "video_path": "tests/sample_conversational_90s.mp4",
+      "duration_sec": 90.0,
+      "run_dir": "runs/representative_90s_validation",
+      "reference_spans": [
+        {
+          "span_id": "dev_ref_opening_argument",
+          "start_time": 0.091,
+          "end_time": 27.27,
+          "label": "opening_narrative_block",
+          "annotation_source": "manual_dev_debug",
+          "description": "Development debug reference interval covering the opening speaker monologue turn."
+        }
+      ],
+      "metadata": {
+        "purpose": "evaluator_pipeline_verification"
+      }
+    }
+  ]
+}

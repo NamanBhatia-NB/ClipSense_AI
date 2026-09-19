@@ -168,3 +168,29 @@
   - Comprehensive unit test suites (`tests/test_evidence_bundle.py` and `tests/test_mter.py`) verifying non-chaining event grouping, candidate-scoped conflict isolation, proposal reference integrity, explicit bounding of composite scores to $[0.0, 1.0]$ across all candidates, modality presence vs. strength separation, modality separation, continuous timestamps, auxiliary grid lookup, cross-event pairing prevention, unimodal candidate preservation, multimodal candidate preference, determinism, and rejection logging.
   - Complete regression suite passing: 46 tests across W1, W2, W3, W4, and W5.
   - Representative validation runner `tests/run_w5_mter_validation.py` executed on `runs/representative_90s_validation/`, generating structured inspectable artifacts `mter_output.json` and `mter_ledger.json`.
+
+## W6 — 14 Sep – 20 Sep 2026
+**Milestone: Formal Research Evaluation Framework, Legacy Baseline & Dedicated Observability Demonstration Runner**
+
+### Scope & Architectural Boundary:
+- **W6 Scope**: Establishing a reproducible quantitative research evaluation suite, an isolated legacy transcript baseline, standard academic alignment metrics, and a dedicated 10-stage demonstration runner.
+- **Strict Evidence Preservation**:
+  - Maintained complete freeze on W1–W5 research architecture (`pipeline/mter/`, `pipeline/experts/`, `pipeline/extraction/`, `core/schemas.py`).
+  - Zero modifications to MTER mathematical scoring or graph clustering internals.
+  - Zero modifications to rendering or frontend engines.
+  - Clearly separated development/debug reference fixtures from official research ground-truth datasets.
+
+### Research & Evaluation Accomplishments:
+- **Formal Evaluation System (`evaluation/`)**:
+  - Implemented the legacy transcript-only LLM baseline (`evaluation/baseline.py`) using fixed, deterministic sliding-window chunking (stride and overlap policy), strictly isolating it from Visual, Prosody, Conversation, and MTER modules.
+  - Implemented standard academic temporal evaluation metrics (`evaluation/metrics.py`): Temporal IoU, boundary bias/error (start, end, duration), and precision/recall at tolerance thresholds ($\text{Hit}@1.0\text{s}$, $\text{Hit}@2.0\text{s}$).
+  - Implemented the Hungarian bipartite matching algorithm (`match_spans_hungarian`) to objectively pair predicted highlight intervals with ground-truth references.
+  - Established dataset schema contracts (`evaluation/schemas.py`) separating development reference fixtures (`evaluation/datasets/dev_fixture.json`) from synthetic regression benchmarks (`evaluation/datasets/synthetic_suite.json`).
+  - Implemented the automated benchmark evaluation orchestrator (`evaluation/benchmark_orchestrator.py` & `run_evaluation.py`) supporting comparative ablation modes (`baseline_transcript_only`, `all_experts_no_mter`, `mter_full`).
+- **Observability & Demonstration Runner (`demo/run_demo.py`)**:
+  - Created a 10-stage visible CLI demonstration runner surfacing real-time telemetry, stage duration, evidence proposal counts, and MTER arbitration ledgers.
+  - Generated self-contained interactive visual HTML reports (`demo_report.html`) featuring multi-track timeline bars for all 4 expert proposal streams and MTER selected candidates.
+  - Implemented adaptive temporal window scaling for long-form video, dynamically expanding LLM analysis windows to reduce API round-trips by 90% (from 63 calls down to 6 calls) and prevent API rate-limit exhaustion.
+- **Verification & Diagnostic Analysis**:
+  - Automated test suite expanded to 67 unit and integration tests (`test_evaluation_metrics.py`, `test_evaluation_baseline.py`, `test_evaluation_dataset.py`, `test_ablation_modes.py`) with 100% passage (`OK`).
+  - Validated end-to-end on both a 90-second conversational sample (achieving 0.955 temporal IoU, 0.06s start error, 1.16s end error) and a 46.7-minute long-form technical video (arbitrating 491 proposals across 113 event regions into top-1 highlight `[2575.79s -> 2585.94s]`).

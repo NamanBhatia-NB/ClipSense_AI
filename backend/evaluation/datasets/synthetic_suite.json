@@ -1,0 +1,27 @@
+{
+  "dataset_name": "synthetic_regression_suite",
+  "dataset_type": "synthetic",
+  "description": "Deterministic synthetic scenarios for CI and unit test regression verification. Never reported as research results.",
+  "samples": [
+    {
+      "sample_id": "synthetic_scenario_multi_agreement",
+      "sample_type": "synthetic",
+      "video_path": null,
+      "duration_sec": 60.0,
+      "run_dir": "runs/representative_90s_validation",
+      "reference_spans": [
+        {
+          "span_id": "synthetic_ref_target_1",
+          "start_time": 10.0,
+          "end_time": 25.0,
+          "label": "synthetic_consensus_highlight",
+          "annotation_source": "synthetic_testbed",
+          "description": "Synthetic target highlight for unit test verification."
+        }
+      ],
+      "metadata": {
+        "scenario": "consensus_verification"
+      }
+    }
+  ]
+}

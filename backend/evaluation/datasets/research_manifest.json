@@ -1,0 +1,6 @@
+{
+  "dataset_name": "research_benchmark_template",
+  "dataset_type": "research",
+  "description": "Template manifest for real benchmark video subsets with independent ground-truth annotations. Only samples declared as sample_type='research' are permitted.",
+  "samples": []
+}
