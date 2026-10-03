@@ -24,7 +24,7 @@ import pathlib
 import shutil
 import sys
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # Ensure backend root is on sys.path
 backend_dir = pathlib.Path(__file__).parent.parent.resolve()
@@ -39,6 +39,8 @@ if sys.stdout.encoding != "utf-8":
 from app.config import config
 from core.llm import LLMClient, MockLLMClient, get_llm_client
 from core.schemas import (
+    ClipExportResult,
+    ClipsManifest,
     CommonEvidenceBundle,
     ConversationData,
     ExpertEvidenceBundle,
@@ -47,6 +49,8 @@ from core.schemas import (
     TranscriptData,
     VisualData,
 )
+from pipeline.render.video_renderer import VideoRenderer
+from pipeline.optimization.boundary_refiner import BoundaryRefiner
 from evaluation.dataset import load_benchmark_dataset
 from evaluation.metrics import match_spans_hungarian
 from evaluation.schemas import EvaluationSpan, ReferenceHighlight
@@ -136,6 +140,7 @@ def generate_html_report(
     mter_ledger: Any,
     evaluation_info: Optional[Dict[str, Any]],
     output_html_path: pathlib.Path,
+    clips_manifest: Optional[ClipsManifest] = None,
 ):
     """
     Builds a self-contained, human-readable HTML demonstration report.
@@ -313,6 +318,108 @@ def generate_html_report(
             </div>
         </section>
         """
+
+    # Build Top-K highlight candidate cards with playable video players (W8)
+    clip_map: Dict[str, Any] = {}
+    if clips_manifest and getattr(clips_manifest, "clips", None):
+        for cl in clips_manifest.clips:
+            clip_map[cl.candidate_id] = cl
+
+    candidate_cards = []
+    for rank_idx, cand in enumerate(mter_output.candidates, start=1):
+        cl_info = clip_map.get(cand.candidate_id)
+        clip_media_html = ""
+        if cl_info and cl_info.status == "success" and cl_info.output_path:
+            rel_clip = f"clips/{pathlib.Path(cl_info.output_path).name}"
+            clip_mb = (cl_info.file_size_bytes or 0) / (1024 * 1024)
+            clip_media_html = f'''
+            <div style="margin-top: 14px; padding: 12px; background: rgba(56, 189, 248, 0.08); border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.25);">
+                <div style="font-weight: 600; margin-bottom: 8px; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
+                    <span>🎬</span> <span>Exported Playable MP4 Clip (W8)</span>
+                </div>
+                <video controls preload="metadata" style="width: 100%; max-height: 320px; border-radius: 6px; display: block; margin-bottom: 8px; background: #000;">
+                    <source src="{rel_clip}" type="video/mp4">
+                    Your browser does not support HTML5 video.
+                </video>
+                <div style="font-size: 0.85rem; color: var(--text-muted);">
+                    File: <code>{rel_clip}</code> &bull; Size: <b>{clip_mb:.2f} MB</b> &bull; Mode: <code>{cl_info.render_mode}</code>
+                </div>
+            </div>
+            '''
+        elif cl_info and cl_info.status == "failed":
+            clip_media_html = f'''
+            <div style="margin-top: 12px; padding: 10px; background: rgba(244, 63, 94, 0.1); border-radius: 6px; border: 1px solid rgba(244, 63, 94, 0.3); font-size: 0.85rem; color: #f43f5e;">
+                ⚠️ Video clip export failed: {html.escape(cl_info.error_message or "Unknown error")}
+            </div>
+            '''
+
+        refine_box_html = ""
+        rf = cand.boundary_refinement
+        if rf and rf.refined:
+            refine_box_html = f'''
+            <div style="margin-top: 12px; padding: 10px 14px; background: rgba(74, 222, 128, 0.08); border-radius: 8px; border: 1px solid rgba(74, 222, 128, 0.25); font-size: 0.85rem;">
+                <div style="font-weight: 600; color: #4ade80; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                    <span>🎯</span> <span>Evidence-Aware Boundary Refinement (W10)</span>
+                </div>
+                <div>Original: <code>{rf.original_start:.2f}s &rarr; {rf.original_end:.2f}s</code> ({rf.original_duration:.2f}s) &bull; Refined: <code>{rf.refined_start:.2f}s &rarr; {rf.refined_end:.2f}s</code> ({rf.refined_duration:.2f}s)</div>
+                <div>Adjustments: Start <b>{rf.start_delta_sec:+.2f}s</b> ({rf.start_evidence_type}), End <b>{rf.end_delta_sec:+.2f}s</b> ({rf.end_evidence_type})</div>
+                <div style="color: var(--text-muted); margin-top: 4px;">Rationale: {html.escape(rf.rationale)}</div>
+            </div>
+            '''
+        elif rf and not rf.refined and rf.fallback_reason:
+            refine_box_html = f'''
+            <div style="margin-top: 12px; padding: 10px 14px; background: rgba(148, 163, 184, 0.08); border-radius: 8px; border: 1px solid rgba(148, 163, 184, 0.25); font-size: 0.85rem; color: var(--text-muted);">
+                🎯 Boundary Refinement (W10): Maintained original boundaries ({html.escape(rf.fallback_reason)})
+            </div>
+            '''
+
+        sm = cand.support_metrics
+        t_pct = (sm.transcript_support * 100.0) if sm else 0.0
+        c_pct = (sm.conversation_support * 100.0) if sm else 0.0
+        v_pct = (sm.visual_support * 100.0) if sm else 0.0
+        p_pct = (sm.prosody_support * 100.0) if sm else 0.0
+
+        card = f'''
+        <div class="candidate-card" style="margin-bottom: 20px;">
+            <div class="candidate-title">
+                Highlight Candidate #{rank_idx}: [{cand.proposed_start:.2f}s &rarr; {cand.proposed_end:.2f}s] 
+                <span style="color: var(--text-muted); font-size: 0.9rem; font-weight: 400;">(Duration: {cand.duration:.2f}s)</span>
+            </div>
+            <p><strong>Decision Summary:</strong> {html.escape(cand.decision_summary)}</p>
+            
+            <div style="margin-top: 14px;">
+                <strong>Composite Evidence Strength:</strong> 
+                <span class="status-badge badge-demo">{cand.confidence_estimate:.3f} / 1.000</span>
+                &bull; <strong>Agreement IoU:</strong> {cand.temporal_agreement_iou:.3f}
+                &bull; <strong>Contributing Modalities:</strong> {', '.join(cand.contributing_experts)}
+            </div>
+
+            <div class="support-bars">
+                <div class="support-item">
+                    <div>Transcript Support: {t_pct:.1f}%</div>
+                    <div class="progress-bar"><div class="progress-fill" style="width: {t_pct:.1f}%; background: {colors['transcript']};"></div></div>
+                </div>
+                <div class="support-item">
+                    <div>Conversation Support: {c_pct:.1f}%</div>
+                    <div class="progress-bar"><div class="progress-fill" style="width: {c_pct:.1f}%; background: {colors['conversation']};"></div></div>
+                </div>
+                <div class="support-item">
+                    <div>Visual Support: {v_pct:.1f}%</div>
+                    <div class="progress-bar"><div class="progress-fill" style="width: {v_pct:.1f}%; background: {colors['visual']};"></div></div>
+                </div>
+                <div class="support-item">
+                    <div>Prosody Support: {p_pct:.1f}%</div>
+                    <div class="progress-bar"><div class="progress-fill" style="width: {p_pct:.1f}%; background: {colors['prosody']};"></div></div>
+                </div>
+            </div>
+
+            {refine_box_html}
+            {clip_media_html}
+        </div>
+        '''
+        candidate_cards.append(card)
+
+    candidate_cards_html = "".join(candidate_cards) if candidate_cards else '<div class="empty-notice">No candidate satisfied temporal bounds.</div>'
 
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
@@ -591,43 +698,10 @@ def generate_html_report(
             </div>
         </section>
 
-        <!-- Selected Candidate -->
+        <!-- Selected Candidate Highlights -->
         <section class="card">
-            <h2>8 & 9. MTER Selected Candidate Highlights</h2>
-            {f'''
-            <div class="candidate-card">
-                <div class="candidate-title">
-                    Top Highlight Candidate: [{selected.proposed_start:.2f}s &rarr; {selected.proposed_end:.2f}s] 
-                    <span style="color: var(--text-muted); font-size: 0.9rem; font-weight: 400;">(Duration: {selected.duration:.2f}s)</span>
-                </div>
-                <p><strong>Decision Summary:</strong> {html.escape(selected.decision_summary)}</p>
-                
-                <div style="margin-top: 14px;">
-                    <strong>Composite Evidence Strength:</strong> 
-                    <span class="status-badge badge-demo">{selected.confidence_estimate:.3f} / 1.000</span>
-                    &bull; <strong>Agreement IoU:</strong> {selected.temporal_agreement_iou:.3f}
-                </div>
-
-                <div class="support-bars">
-                    <div class="support-item">
-                        <div>Transcript Support: {selected.support_metrics.transcript_support * 100:.1f}%</div>
-                        <div class="progress-bar"><div class="progress-fill" style="width: {selected.support_metrics.transcript_support * 100:.1f}%; background: {colors['transcript']};"></div></div>
-                    </div>
-                    <div class="support-item">
-                        <div>Conversation Support: {selected.support_metrics.conversation_support * 100:.1f}%</div>
-                        <div class="progress-bar"><div class="progress-fill" style="width: {selected.support_metrics.conversation_support * 100:.1f}%; background: {colors['conversation']};"></div></div>
-                    </div>
-                    <div class="support-item">
-                        <div>Visual Support: {selected.support_metrics.visual_support * 100:.1f}%</div>
-                        <div class="progress-bar"><div class="progress-fill" style="width: {selected.support_metrics.visual_support * 100:.1f}%; background: {colors['visual']};"></div></div>
-                    </div>
-                    <div class="support-item">
-                        <div>Prosody Support: {selected.support_metrics.prosody_support * 100:.1f}%</div>
-                        <div class="progress-bar"><div class="progress-fill" style="width: {selected.support_metrics.prosody_support * 100:.1f}%; background: {colors['prosody']};"></div></div>
-                    </div>
-                </div>
-            </div>
-            ''' if selected else '<div class="empty-notice">No candidate satisfied temporal bounds.</div>'}
+            <h2>8 & 9. MTER Selected Highlight Candidates (Top-K)</h2>
+            {candidate_cards_html}
         </section>
 
         <!-- Evaluation Section -->
@@ -670,15 +744,20 @@ def run_demonstration(
     whisper_model: str = "tiny.en",
     mock_llm: bool = False,
     transcript_window_sec: Optional[float] = None,
-):
+    top_k: int = 3,
+    render_clips: bool = True,
+    render_mode: str = "accurate",
+    progress_callback: Optional[Callable[[str, float, str], None]] = None,
+) -> Dict[str, Any]:
     """
-    Coordinates the 10-stage visible demonstration run.
+    Coordinates the end-to-end visible demonstration run with physical highlight rendering (W8).
     """
     t_start = time.time()
     v_path = pathlib.Path(video_path).resolve()
     if not v_path.exists():
-        print(f"Error: Input video not found: {video_path}")
-        sys.exit(1)
+        msg = f"Input video not found: {video_path}"
+        print(f"Error: {msg}")
+        raise FileNotFoundError(msg)
 
     out_p = pathlib.Path(output_dir).resolve()
     out_p.mkdir(parents=True, exist_ok=True)
@@ -702,6 +781,8 @@ def run_demonstration(
     # 2. MULTIMODAL EXTRACTION
     # -------------------------------------------------------------------------
     t_stage = time.time()
+    if progress_callback:
+        progress_callback("extraction", 0.15, "Extracting multimodal features (transcript, frames, prosody, conversation)...")
     print("\n2. Multimodal Extraction")
 
     # Fast cache check: check if extraction artifacts exist in out_p or in runs/representative_90s_validation
@@ -806,6 +887,8 @@ def run_demonstration(
     can_use_expert_cache = use_cache and out_p_matches_video and not needs_extract
 
     t_stage = time.time()
+    if progress_callback:
+        progress_callback("experts", 0.40, "Evaluating 4 independent evidence experts...")
     # Compute adaptive window duration to keep total LLM API calls <= 6 for any video duration
     if transcript_window_sec is not None:
         eff_win_sec = float(transcript_window_sec)
@@ -926,6 +1009,8 @@ def run_demonstration(
     # 7. COMMON EVIDENCE BUNDLE (W5)
     # -------------------------------------------------------------------------
     t_stage = time.time()
+    if progress_callback:
+        progress_callback("bundle", 0.65, "Assembling common evidence bundle and auxiliary temporal grid...")
     print("\n7. Common Evidence Bundle")
     bundle = build_common_evidence_bundle(
         video_id=out_p.name,
@@ -948,9 +1033,11 @@ def run_demonstration(
     # 8. MULTIMODAL TEMPORAL EVIDENCE REASONER (MTER) (W5)
     # -------------------------------------------------------------------------
     t_stage = time.time()
+    if progress_callback:
+        progress_callback("mter", 0.80, "Executing MTER cross-modal arbitration and Top-K selection...")
     print("\n8. MTER (Multimodal Temporal Evidence Reasoner)")
     reasoner = MTERReasoner(config.mter)
-    mter_output, mter_ledger = reasoner.reason(bundle)
+    mter_output, mter_ledger = reasoner.reason(bundle, top_k=top_k)
 
     out_file = out_p / "mter_output.json"
     ledger_file = out_p / "mter_ledger.json"
@@ -964,30 +1051,112 @@ def run_demonstration(
     print(f"   - End Boundary Clusters:   {len(mter_ledger.end_clusters)}")
     print(f"   - Temporal Conflicts:      {len(mter_ledger.conflicts)} detected across regions")
     print(f"   - Evaluated Candidates:    {len(mter_ledger.evaluated_candidates)} intervals")
+    print(f"   - Selected Highlights:     {len(mter_output.candidates)} non-overlapping candidate(s)")
     print(f"   [✓] MTER consensus arbitration complete (elapsed: {time.time() - t_stage:.2f}s)")
 
     # -------------------------------------------------------------------------
-    # 9. FINAL CANDIDATE HIGHLIGHTS
+    # 8.5. EVIDENCE-AWARE TEMPORAL BOUNDARY REFINEMENT (W10)
     # -------------------------------------------------------------------------
     t_stage = time.time()
-    print("\n9. Final Candidate Highlights")
+    if progress_callback:
+        progress_callback("refinement", 0.85, "Refining temporal boundaries with speech & pause evidence...")
+    print("\n8.5. Evidence-Aware Boundary Refinement (W10)")
+
+    if mter_output.candidates:
+        refiner_cfg = config.refiner.model_copy()
+        if not refine_boundaries:
+            refiner_cfg.enabled = False
+        refiner = BoundaryRefiner(refiner_cfg)
+        refined_candidates = refiner.refine_candidates(
+            candidates=mter_output.candidates,
+            transcript_data=transcript_data,
+            conversation_data=conversation_data,
+            visual_data=visual_data,
+            prosody_data=prosody_data,
+            video_duration=total_duration,
+        )
+        mter_output.candidates = refined_candidates
+
+        # Re-save updated mter_output.json with boundary refinement metadata
+        with open(out_file, "w", encoding="utf-8") as f:
+            f.write(mter_output.model_dump_json(indent=2))
+
+        refined_count = sum(1 for c in refined_candidates if c.boundary_refinement and c.boundary_refinement.refined)
+        print(f"   - Refinement Mode:       {'ENABLED' if refiner_cfg.enabled else 'DISABLED'}")
+        print(f"   - Candidates Refined:    {refined_count} / {len(refined_candidates)}")
+        for idx, c in enumerate(refined_candidates, start=1):
+            rf = c.boundary_refinement
+            if rf and rf.refined:
+                print(f"     * Candidate #{idx}: [{rf.original_start:.2f}s -> {rf.original_end:.2f}s] -> [{rf.refined_start:.2f}s -> {rf.refined_end:.2f}s] "
+                      f"(Δstart: {rf.start_delta_sec:+.2f}s, Δend: {rf.end_delta_sec:+.2f}s) | Rationale: {rf.rationale}")
+            elif rf:
+                print(f"     * Candidate #{idx}: [{rf.original_start:.2f}s -> {rf.original_end:.2f}s] maintained unchanged ({rf.rationale})")
+    else:
+        print("   -> No candidates available for boundary refinement.")
+    print(f"   [✓] Boundary refinement stage complete (elapsed: {time.time() - t_stage:.2f}s)")
+
+    # -------------------------------------------------------------------------
+    # 9. FINAL CANDIDATE HIGHLIGHTS (TOP-K)
+    # -------------------------------------------------------------------------
+    t_stage = time.time()
+    print(f"\n9. Final Candidate Highlights (Top-{len(mter_output.candidates)} Selected via MTER)")
     if not mter_output.candidates:
         print("   -> No candidate satisfied duration or temporal constraints.")
     else:
-        top = mter_output.candidates[0]
-        sm = top.support_metrics
-        print(f"   - Selected Highlight Interval: [{top.proposed_start:.2f}s -> {top.proposed_end:.2f}s]")
-        print(f"   - Duration:                    {top.duration:.2f}s")
-        print(f"   - Composite Evidence Strength: {top.confidence_estimate:.3f} / 1.000")
-        print(f"   - Temporal Agreement IoU:      {top.temporal_agreement_iou:.3f}")
-        print(f"   - Modality Support Breakdown:")
-        print(f"     * Spoken Transcript: {sm.transcript_support * 100:.1f}% (IoU: {sm.transcript_iou:.2f})")
-        print(f"     * Dialogue Dynamics: {sm.conversation_support * 100:.1f}% (IoU: {sm.conversation_iou:.2f})")
-        print(f"     * Visual Activity:   {sm.visual_support * 100:.1f}% (IoU: {sm.visual_iou:.2f})")
-        print(f"     * Acoustic Prosody:  {sm.prosody_support * 100:.1f}% (IoU: {sm.prosody_iou:.2f})")
-        print(f"   - Decision Summary:")
-        print(f"     \"{top.decision_summary}\"")
+        for idx, cand in enumerate(mter_output.candidates, start=1):
+            sm = cand.support_metrics
+            print(f"   - Highlight #{idx}: [{cand.proposed_start:.2f}s -> {cand.proposed_end:.2f}s] (Duration: {cand.duration:.2f}s)")
+            print(f"     * Composite Strength: {cand.confidence_estimate:.3f} / 1.000 | Agreement IoU: {cand.temporal_agreement_iou:.3f}")
+            print(f"     * Modality Support: transcript={sm.transcript_support:.2f}, conv={sm.conversation_support:.2f}, visual={sm.visual_support:.2f}, prosody={sm.prosody_support:.2f}")
+            print(f"     * Decision Summary: \"{cand.decision_summary}\"")
     print(f"   [✓] Candidate highlights extracted (elapsed: {time.time() - t_stage:.2f}s)")
+
+    # -------------------------------------------------------------------------
+    # 9.5. PHYSICAL VIDEO RENDERING & CLIP EXPORT (W8)
+    # -------------------------------------------------------------------------
+    t_stage = time.time()
+    if progress_callback:
+        progress_callback("rendering", 0.90, "Exporting Top-K highlight MP4 clips with FFmpeg...")
+    print("\n9.5. Physical Highlight Video Export (W8)")
+    clips_manifest: Optional[ClipsManifest] = None
+
+    if render_clips and mter_output.candidates:
+        renderer = VideoRenderer(
+            default_mode=render_mode,
+            video_codec=config.render.video_codec,
+            audio_codec=config.render.audio_codec,
+            crf=config.render.crf,
+            preset=config.render.preset,
+            fallback_to_reencode=config.render.fallback_to_reencode,
+        )
+        if renderer.is_available():
+            clips_manifest = renderer.render_highlights(
+                source_video=v_path,
+                candidates=mter_output.candidates,
+                output_dir=out_p,
+                top_k=top_k,
+                video_duration=total_duration,
+                mode=render_mode,
+            )
+            # Also write top-level clips_manifest.json for convenience
+            with open(out_p / "clips_manifest.json", "w", encoding="utf-8") as f:
+                f.write(clips_manifest.model_dump_json(indent=2))
+
+            print(f"   - Clips Directory:       {out_p / 'clips'}")
+            print(f"   - Render Mode:           {render_mode.upper()} (accurate re-encoding / fast copy)")
+            print(f"   - Highlight Clips Saved: {clips_manifest.total_clips_exported} / {clips_manifest.total_candidates_requested}")
+            for c in clips_manifest.clips:
+                status_icon = "✓" if c.status == "success" else "✗"
+                size_str = f"({c.file_size_bytes / (1024*1024):.2f} MB)" if c.file_size_bytes else "(failed)"
+                print(f"     [{status_icon}] Rank #{c.rank}: [{c.start_time:.2f}s -> {c.end_time:.2f}s] {size_str} -> {pathlib.Path(c.output_path).name if c.output_path else c.error_message}")
+        else:
+            print("   -> FFmpeg executable not found on system PATH. Physical clip rendering skipped.")
+    elif not render_clips:
+        print("   -> Physical video rendering skipped (--no-render specified).")
+    else:
+        print("   -> No candidate highlights available to render.")
+    print(f"   [✓] Video export stage complete (elapsed: {time.time() - t_stage:.2f}s)")
+
 
     # -------------------------------------------------------------------------
     # 10. EVALUATION (ONLY WHEN REFERENCE ANNOTATIONS ARE AVAILABLE)
@@ -1072,6 +1241,7 @@ def run_demonstration(
         mter_ledger=mter_ledger,
         evaluation_info=eval_info,
         output_html_path=html_report_path,
+        clips_manifest=clips_manifest,
     )
 
     # -------------------------------------------------------------------------
@@ -1084,6 +1254,19 @@ def run_demonstration(
     print(f"Total Execution Time: {total_elapsed:.2f}s")
     print(f"Artifacts:\n  {out_p}")
     print(f"Report:\n  {html_report_path}\n")
+
+    if progress_callback:
+        progress_callback("completed", 1.0, "Highlights and video clips generated successfully")
+
+    return {
+        "output_dir": str(out_p),
+        "total_duration": total_duration,
+        "mter_output": mter_output,
+        "mter_ledger": mter_ledger,
+        "clips_manifest": clips_manifest,
+        "html_report_path": str(html_report_path),
+        "total_elapsed": total_elapsed,
+    }
 
 
 def main():
@@ -1144,20 +1327,29 @@ def main():
         default=None,
         help="Duration of transcript analysis window in seconds (e.g. 300-600s to reduce API calls for long videos).",
     )
-
-    args = parser.parse_args()
-
-    run_demonstration(
-        video_path=args.video,
-        output_dir=args.output_dir,
-        reference_path=args.reference,
-        use_cache=args.use_cache,
-        device=args.device,
-        whisper_model=args.whisper_model,
-        mock_llm=args.mock_llm,
-        transcript_window_sec=args.transcript_window_sec,
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=3,
+        help="Number of top non-overlapping highlight candidates to select and export (default: 3).",
+    )
+    parser.add_argument(
+        "--render-clips",
+        action="store_true",
+        default=True,
+        help="Render physical MP4 video clips for selected highlight candidates using FFmpeg (default: True).",
+    )
+    parser.add_argument(
+        "--no-render",
+        dest="render_clips",
+        action="store_false",
+        help="Skip physical video rendering (useful for evaluation or metadata-only runs).",
+    )
+    parser.add_argument(
+        "--render-mode",
+        type=str,
+        default="accurate",
+        choices=["accurate", "fast"],
+        help="Rendering mode: 'accurate' (libx264 re-encode) or 'fast' (stream copy).",
     )
 
-
-if __name__ == "__main__":
-    main()

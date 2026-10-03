@@ -117,6 +117,16 @@ from pipeline.mter.clustering import (
 logger = logging.getLogger("clipsense.mter.reasoner")
 
 
+def compute_temporal_interval_iou(s1: float, e1: float, s2: float, e2: float) -> float:
+    """
+    Computes Intersection-over-Union (IoU) between two 1D temporal intervals.
+    Used for Non-Maximum Suppression to prevent duplicate candidate exports.
+    """
+    inter = max(0.0, min(e1, e2) - max(s1, s2))
+    union = (e1 - s1) + (e2 - s2) - inter
+    return inter / union if union > 0.0 else 0.0
+
+
 class MTERReasoner:
     """
     Multimodal Temporal Evidence Reasoner (MTER) Prototype.
@@ -128,9 +138,15 @@ class MTERReasoner:
     def __init__(self, mter_config: Optional[MTERConfig] = None):
         self.config = mter_config or config.mter
 
-    def reason(self, bundle: CommonEvidenceBundle) -> Tuple[MTEROutput, EvidenceLedger]:
+    def reason(
+        self,
+        bundle: CommonEvidenceBundle,
+        top_k: Optional[int] = None,
+        nms_iou_threshold: Optional[float] = None,
+    ) -> Tuple[MTEROutput, EvidenceLedger]:
         """
         Executes the full W5 MTER reasoning procedure on a CommonEvidenceBundle.
+        Supports configurable Top-K highlight selection with Non-Maximum Suppression (W8).
         """
         start_time_proc = time.time()
         video_duration = bundle.total_duration
@@ -326,7 +342,7 @@ class MTERReasoner:
             )
             return output, ledger
 
-        # 5. Select the best-supported candidate
+        # 5. Select the best-supported candidates via Non-Maximum Suppression (W8)
         # Deterministically sort by composite_score descending, then modality diversity, then duration proximity
         candidate_evaluations.sort(
             key=lambda x: (
@@ -337,55 +353,93 @@ class MTERReasoner:
             reverse=True,
         )
 
-        top_eval = candidate_evaluations[0]
-
-        # Populate conflicts affecting the selected candidate
-        affecting_conflicts = top_eval["affecting_conflicts"]
-        unresolved_conflicts = top_eval["unresolved_conflicts"]
-
-        ledger.conflicts_affecting_candidate = affecting_conflicts
-        ledger.unresolved_conflicts_affecting_candidate = unresolved_conflicts
-
-        decision_summary = self._synthesize_decision_summary(top_eval, len(all_conflicts))
-
-        # Build MTERCandidate
-        selected_candidate = MTERCandidate(
-            candidate_id=top_eval["candidate_id"],
-            proposed_start=top_eval["start"],
-            proposed_end=top_eval["end"],
-            duration=top_eval["duration"],
-            confidence_estimate=min(1.0, max(0.0, top_eval["metrics"].composite_score)),
-            contributing_experts=top_eval["contributing_experts"],
-            temporal_agreement_iou=top_eval["iou"],
-            modality_ious=top_eval["modality_ious"],
-            modality_coverages=top_eval["modality_coverages"],
-            boundary_activity_support=top_eval["boundary_activity_support"],
-            linguistic_boundary_support=top_eval["linguistic_boundary_support"],
-            modalities_present=top_eval["modalities_present"],
-            strong_support_modalities=top_eval["strong_support_modalities"],
-            moderate_support_modalities=top_eval["moderate_support_modalities"],
-            weak_support_modalities=top_eval["weak_support_modalities"],
-            support_metrics=top_eval["metrics"],
-            conflict_notes=top_eval["conflict_notes"],
-            detected_conflicts_count=len(all_conflicts),
-            conflicts_affecting_candidate_count=len(affecting_conflicts),
-            unresolved_conflicts_count=len(unresolved_conflicts),
-            semantic_verification=top_eval["semantic_verification"],
-            semantic_verification_status="passed" if top_eval["metrics"].inherited_contextual_evidence >= 0.6 else "flagged",
-            decision_summary=decision_summary,
+        effective_top_k = top_k if top_k is not None else getattr(self.config, "top_k", 1)
+        effective_nms_iou = (
+            nms_iou_threshold
+            if nms_iou_threshold is not None
+            else getattr(self.config, "nms_iou_threshold", 0.3)
         )
 
+        top_eval = candidate_evaluations[0]
+
+        # Populate conflicts affecting the top-selected candidate in ledger
+        ledger.conflicts_affecting_candidate = top_eval["affecting_conflicts"]
+        ledger.unresolved_conflicts_affecting_candidate = top_eval["unresolved_conflicts"]
+
+        # Build top-ranked candidate
+        selected_candidate = self._build_candidate_from_eval(top_eval, len(all_conflicts))
         ledger.selected_candidate = selected_candidate
-        ledger.decision_summary = decision_summary
+        ledger.decision_summary = selected_candidate.decision_summary
+
+        # Select Top-K non-overlapping candidates using Non-Maximum Suppression (NMS)
+        selected_candidates: List[MTERCandidate] = [selected_candidate]
+
+        if effective_top_k > 1:
+            for ev in candidate_evaluations[1:]:
+                if len(selected_candidates) >= effective_top_k:
+                    break
+                # Suppress candidate if temporal IoU with any higher-ranked candidate exceeds threshold
+                is_suppressed = False
+                for existing in selected_candidates:
+                    iou = compute_temporal_interval_iou(
+                        ev["start"],
+                        ev["end"],
+                        existing.proposed_start,
+                        existing.proposed_end,
+                    )
+                    if iou > effective_nms_iou:
+                        is_suppressed = True
+                        break
+                if not is_suppressed:
+                    cand_obj = self._build_candidate_from_eval(ev, len(all_conflicts))
+                    selected_candidates.append(cand_obj)
 
         output = MTEROutput(
             video_id=bundle.video_id,
-            candidates=[selected_candidate],
+            candidates=selected_candidates,
             ledger=ledger,
             execution_time_sec=time.time() - start_time_proc,
         )
 
         return output, ledger
+
+    def _build_candidate_from_eval(
+        self,
+        eval_data: Dict[str, Any],
+        total_conflicts_count: int,
+    ) -> MTERCandidate:
+        """Constructs a validated MTERCandidate from an evaluated candidate dictionary."""
+        decision_summary = self._synthesize_decision_summary(eval_data, total_conflicts_count)
+        affecting = eval_data.get("affecting_conflicts", [])
+        unresolved = eval_data.get("unresolved_conflicts", [])
+        metrics = eval_data["metrics"]
+
+        return MTERCandidate(
+            candidate_id=eval_data["candidate_id"],
+            proposed_start=eval_data["start"],
+            proposed_end=eval_data["end"],
+            duration=eval_data["duration"],
+            confidence_estimate=min(1.0, max(0.0, metrics.composite_score)),
+            contributing_experts=eval_data["contributing_experts"],
+            temporal_agreement_iou=eval_data["iou"],
+            modality_ious=eval_data["modality_ious"],
+            modality_coverages=eval_data["modality_coverages"],
+            boundary_activity_support=eval_data["boundary_activity_support"],
+            linguistic_boundary_support=eval_data["linguistic_boundary_support"],
+            modalities_present=eval_data["modalities_present"],
+            strong_support_modalities=eval_data["strong_support_modalities"],
+            moderate_support_modalities=eval_data["moderate_support_modalities"],
+            weak_support_modalities=eval_data["weak_support_modalities"],
+            support_metrics=metrics,
+            conflict_notes=eval_data["conflict_notes"],
+            detected_conflicts_count=total_conflicts_count,
+            conflicts_affecting_candidate_count=len(affecting),
+            unresolved_conflicts_count=len(unresolved),
+            semantic_verification=eval_data["semantic_verification"],
+            semantic_verification_status="passed" if metrics.inherited_contextual_evidence >= 0.6 else "flagged",
+            decision_summary=decision_summary,
+        )
+
 
     def _apply_ablation_filtering(
         self,

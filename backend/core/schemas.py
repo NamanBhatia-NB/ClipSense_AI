@@ -12,6 +12,7 @@ All timestamps are authoritative continuous floating-point seconds.
 Expert outputs remain separate without premature scalar aggregation.
 """
 
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
@@ -375,6 +376,28 @@ class SemanticVerificationCriteria(BaseModel):
     )
 
 
+class BoundaryRefinementMetadata(BaseModel):
+    """
+    Detailed audit trail of temporal boundary refinement adjustments (W10).
+    Records original vs refined boundaries, shift deltas, evidence types utilized,
+    and decision rationale.
+    """
+    refined: bool = False
+    original_start: float
+    original_end: float
+    original_duration: float
+    refined_start: float
+    refined_end: float
+    refined_duration: float
+    start_delta_sec: float = 0.0
+    end_delta_sec: float = 0.0
+    start_evidence_type: Optional[str] = None
+    end_evidence_type: Optional[str] = None
+    signals_used: List[str] = Field(default_factory=list)
+    rationale: str = ""
+    fallback_reason: Optional[str] = None
+
+
 class MTERCandidate(BaseModel):
     """
     A temporal region selected by MTER via multi-expert agreement analysis.
@@ -450,6 +473,43 @@ class MTEROutput(BaseModel):
     candidates: List[MTERCandidate] = Field(default_factory=list)
     ledger: Optional[EvidenceLedger] = None
     execution_time_sec: float
+
+    @property
+    def highlight(self) -> Optional[MTERCandidate]:
+        """Convenience property returning the top-ranked highlight candidate if present."""
+        return self.candidates[0] if self.candidates else None
+
+
+# ============================================================================
+# 5. Video Rendering & Clip Export Schemas (W8)
+# ============================================================================
+
+class ClipExportResult(BaseModel):
+    """Structured metadata for a rendered video clip exported from an MTER highlight proposal."""
+    candidate_id: str
+    rank: int = Field(..., ge=1, description="1-indexed rank among exported candidates")
+    source_video: str
+    start_time: float = Field(..., ge=0.0)
+    end_time: float = Field(..., ge=0.0)
+    duration: float = Field(..., ge=0.0)
+    output_path: Optional[str] = None
+    status: Literal["success", "failed", "skipped"] = "success"
+    error_message: Optional[str] = None
+    file_size_bytes: Optional[int] = None
+    render_mode: Literal["accurate", "fast"] = "accurate"
+    execution_time_sec: float = 0.0
+
+
+class ClipsManifest(BaseModel):
+    """Manifest cataloging all exported highlight video clips for a demonstration or pipeline run."""
+    run_id: str
+    source_video: str
+    total_candidates_requested: int
+    total_clips_exported: int
+    render_mode: str
+    clips: List[ClipExportResult] = Field(default_factory=list)
+    generated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
 
 
 # ============================================================================

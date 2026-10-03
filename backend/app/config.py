@@ -256,6 +256,33 @@ class MTERConfig(BaseModel):
         0.05, 
         description="Configurable prototype soft penalty for deviation from target duration (not a learned research constant)"
     )
+    top_k: int = Field(
+        1,
+        ge=1,
+        description="Number of top non-overlapping candidates to extract and return (defaults to 1 for backward compatibility)"
+    )
+    nms_iou_threshold: float = Field(
+        0.3,
+        ge=0.0,
+        le=1.0,
+        description="Temporal IoU threshold for Non-Maximum Suppression to prevent duplicate candidate exports"
+    )
+
+
+class RenderConfig(BaseModel):
+    """Configurable parameters for physical highlight video rendering via FFmpeg (W8)."""
+    mode: Literal["accurate", "fast"] = Field(
+        "accurate", 
+        description="Rendering mode: 'accurate' (frame-accurate libx264 re-encoding) or 'fast' (stream copy)"
+    )
+    video_codec: str = Field("libx264", description="Video encoder for accurate cuts")
+    audio_codec: str = Field("aac", description="Audio encoder for accurate cuts")
+    crf: int = Field(18, description="x264 Constant Rate Factor (18 = visually lossless)")
+    preset: str = Field("fast", description="x264 encoding speed preset")
+    fallback_to_reencode: bool = Field(
+        True, 
+        description="Automatically retry with re-encoding if fast stream copy fails"
+    )
 
 
 class AppConfig(BaseModel):
@@ -275,7 +302,26 @@ class AppConfig(BaseModel):
     clip_boundary: ClipBoundaryConfig = Field(default_factory=ClipBoundaryConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     mter: MTERConfig = Field(default_factory=MTERConfig)
+    render: RenderConfig = Field(default_factory=RenderConfig)
+    refiner: BoundaryRefinerConfig = Field(default_factory=BoundaryRefinerConfig)
+    api: "ApiConfig" = Field(default_factory=lambda: ApiConfig())
+
+
+class ApiConfig(BaseModel):
+    """Configurable parameters for the local FastAPI bridge service (W9)."""
+    host: str = Field("0.0.0.0", description="API server host")
+    port: int = Field(8000, description="API server port")
+    cors_origins: List[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3001",
+        ]
+    )
+    max_upload_size_bytes: int = Field(500 * 1024 * 1024, description="500MB max video upload size")
 
 
 # Global default configuration instance
 config = AppConfig()
+
