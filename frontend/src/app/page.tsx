@@ -18,6 +18,7 @@ import NavHeader from "~/components/nav-header";
 import { auth } from "~/server/auth";
 import { db } from "~/server/db";
 import Image from "next/image";
+import { ClipSenseStudio } from "~/components/clipsense-studio";
 
 export default async function HomePage() {
   const session = await auth();
@@ -101,6 +102,25 @@ export default async function HomePage() {
             <span className="text-xl font-bold">Instagram</span>
             <span className="text-xl font-bold">LinkedIn</span>
           </div>
+        </div>
+      </section>
+
+      {/* 2.5 INTERACTIVE CLIPSENSE RESEARCH DEMO STUDIO */}
+      <section className="py-20 bg-slate-50 border-b" id="demo">
+        <div className="container px-4 md:px-6 mx-auto">
+          <div className="text-center mb-10">
+            <Badge variant="outline" className="mb-3 px-3 py-1 text-xs border-blue-300 bg-blue-50 text-blue-700 rounded-full">
+              Live Multimodal Pipeline
+            </Badge>
+            <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-900 mb-3">
+              Test ClipSense AI Live
+            </h2>
+            <p className="text-slate-600 max-w-2xl mx-auto text-sm md:text-base">
+              Run speech transcription, conversational turn tracking, visual activity, and acoustic prosody directly through our local MTER consensus engine.
+            </p>
+          </div>
+
+          <ClipSenseStudio />
         </div>
       </section>
 

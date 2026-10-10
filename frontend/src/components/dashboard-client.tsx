@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { processVideo, getClipsPaginated } from "~/actions/generation";
 import { generateUploadUrl } from "~/actions/s3";
 import { ClipDisplay } from "./clip-display";
+import { ClipSenseStudio } from "./clipsense-studio";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
@@ -300,11 +301,18 @@ export function DashboardClient({
                 </div>
             </div>
 
-            <Tabs defaultValue="upload">
+            <Tabs defaultValue="clipsense">
                 <TabsList>
-                    <TabsTrigger value="upload">Upload</TabsTrigger>
+                    <TabsTrigger value="clipsense" className="flex items-center gap-1.5 font-semibold text-blue-600">
+                        <Sparkles className="h-3.5 w-3.5" /> ClipSense AI Studio
+                    </TabsTrigger>
+                    <TabsTrigger value="upload">S3 Cloud Upload</TabsTrigger>
                     <TabsTrigger value="my-clips">My Clips</TabsTrigger>
                 </TabsList>
+
+                <TabsContent value="clipsense">
+                    <ClipSenseStudio />
+                </TabsContent>
 
                 <TabsContent value="upload">
                     <Card>

@@ -41,7 +41,7 @@ export const env = createEnv({
    * `NEXT_PUBLIC_`.
    */
   client: {
-    // NEXT_PUBLIC_CLIENTVAR: z.string(),
+    NEXT_PUBLIC_CLIPSENSE_API_URL: z.string().default("http://localhost:8000"),
   },
 
   /**
@@ -49,6 +49,7 @@ export const env = createEnv({
    * middlewares) or client-side so we need to destruct manually.
    */
   runtimeEnv: {
+    NEXT_PUBLIC_CLIPSENSE_API_URL: process.env.NEXT_PUBLIC_CLIPSENSE_API_URL,
     AUTH_SECRET: process.env.AUTH_SECRET,
     DATABASE_URL: process.env.DATABASE_URL,
     NODE_ENV: process.env.NODE_ENV,
