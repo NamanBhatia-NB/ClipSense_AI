@@ -66,6 +66,24 @@ class HighlightClipInfo(BaseModel):
     status: Literal["success", "failed", "skipped"] = "success"
 
 
+class BoundaryRefinementSummary(BaseModel):
+    """Temporal boundary adjustment audit summary."""
+    refined: bool = False
+    original_start: float
+    original_end: float
+    original_duration: float
+    refined_start: float
+    refined_end: float
+    refined_duration: float
+    start_delta_sec: float = 0.0
+    end_delta_sec: float = 0.0
+    start_evidence_type: Optional[str] = None
+    end_evidence_type: Optional[str] = None
+    signals_used: List[str] = Field(default_factory=list)
+    rationale: str = ""
+    fallback_reason: Optional[str] = None
+
+
 class HighlightItem(BaseModel):
     """A ranked highlight proposal with evidence metrics and clip references."""
     candidate_id: str
@@ -78,6 +96,7 @@ class HighlightItem(BaseModel):
     decision_summary: str
     modality_evidence: ModalityEvidenceSummary
     clip: Optional[HighlightClipInfo] = None
+    boundary_refinement: Optional[BoundaryRefinementSummary] = None
 
 
 class TaskHighlightsResponse(BaseModel):

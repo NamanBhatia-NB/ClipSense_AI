@@ -122,6 +122,7 @@ async def process_video(
     use_cache: bool = Form(True),
     mock_llm: bool = Form(False),
     render_mode: str = Form("accurate"),
+    refine_boundaries: bool = Form(True),
 ) -> ProcessTaskResponse:
     """
     Accept a supported video upload or local path, initiate asynchronous processing,

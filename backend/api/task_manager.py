@@ -284,6 +284,7 @@ class TaskManager:
         use_cache: bool = True,
         mock_llm: bool = False,
         render_mode: str = "accurate",
+        refine_boundaries: bool = True,
     ) -> None:
         """Submit pipeline execution to background worker pool."""
         with self._lock:
@@ -309,6 +310,7 @@ class TaskManager:
         use_cache: bool,
         mock_llm: bool,
         render_mode: str,
+        refine_boundaries: bool = True,
     ) -> None:
         """Execute the real ClipSense research pipeline in worker thread."""
         task = self.get_task(task_id)

@@ -444,6 +444,7 @@ class MTERCandidate(BaseModel):
         ..., 
         description="Concise evidence summary explaining the rationale for selecting this candidate"
     )
+    boundary_refinement: Optional[BoundaryRefinementMetadata] = None
 
 
 class EvidenceLedger(BaseModel):
@@ -498,6 +499,7 @@ class ClipExportResult(BaseModel):
     file_size_bytes: Optional[int] = None
     render_mode: Literal["accurate", "fast"] = "accurate"
     execution_time_sec: float = 0.0
+    boundary_refinement: Optional[BoundaryRefinementMetadata] = None
 
 
 class ClipsManifest(BaseModel):

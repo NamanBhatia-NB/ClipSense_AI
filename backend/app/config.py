@@ -285,6 +285,47 @@ class RenderConfig(BaseModel):
     )
 
 
+class BoundaryRefinerConfig(BaseModel):
+    """Configurable parameters for evidence-aware temporal boundary refinement (W10)."""
+    enabled: bool = Field(True, description="Whether temporal boundary refinement is active")
+    search_window_start_sec: float = Field(
+        1.5, 
+        description="Search window in seconds around candidate start to locate natural onset"
+    )
+    search_window_end_sec: float = Field(
+        1.5, 
+        description="Search window in seconds around candidate end to locate natural offset"
+    )
+    min_clip_duration_sec: float = Field(
+        10.0, 
+        description="Absolute lower bound on refined candidate duration in seconds"
+    )
+    max_clip_duration_sec: float = Field(
+        60.0, 
+        description="Absolute upper bound on refined candidate duration in seconds"
+    )
+    dead_air_buffer_sec: float = Field(
+        0.15, 
+        description="Audio padding in seconds before/after spoken words to prevent clipping phonemes"
+    )
+    speech_pause_threshold_sec: float = Field(
+        0.25, 
+        description="Silence duration threshold in seconds to consider an inter-utterance pause"
+    )
+    max_shift_sec: float = Field(
+        2.5, 
+        description="Maximum allowable boundary adjustment in seconds from original candidate"
+    )
+    scene_cut_tolerance_sec: float = Field(
+        0.35, 
+        description="Temporal tolerance for considering a visual scene cut supporting evidence"
+    )
+    prioritize_sentence_boundaries: bool = Field(
+        True, 
+        description="Whether to favor sentence/utterance boundaries over intermediate word boundaries"
+    )
+
+
 class AppConfig(BaseModel):
     """Top-level ClipSense application configuration."""
     auth_token: str = Field(default_factory=lambda: os.getenv("AUTH_TOKEN", "test-secret-token"))

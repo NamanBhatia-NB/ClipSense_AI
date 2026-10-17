@@ -747,6 +747,7 @@ def run_demonstration(
     top_k: int = 3,
     render_clips: bool = True,
     render_mode: str = "accurate",
+    refine_boundaries: bool = True,
     progress_callback: Optional[Callable[[str, float, str], None]] = None,
 ) -> Dict[str, Any]:
     """
@@ -1352,4 +1353,39 @@ def main():
         choices=["accurate", "fast"],
         help="Rendering mode: 'accurate' (libx264 re-encode) or 'fast' (stream copy).",
     )
+    parser.add_argument(
+        "--refine-boundaries",
+        action="store_true",
+        default=True,
+        help="Refine candidate start/end timestamps using speech activity and pause evidence (default: True).",
+    )
+    parser.add_argument(
+        "--no-refine",
+        dest="refine_boundaries",
+        action="store_false",
+        help="Disable boundary refinement stage (preserves raw MTER boundaries).",
+    )
 
+    args = parser.parse_args()
+
+    try:
+        run_demonstration(
+            video_path=args.video,
+            output_dir=args.output_dir,
+            reference_path=args.reference,
+            use_cache=args.use_cache,
+            device=args.device,
+            whisper_model=args.whisper_model,
+            mock_llm=args.mock_llm,
+            transcript_window_sec=args.transcript_window_sec,
+            top_k=args.top_k,
+            render_clips=args.render_clips,
+            render_mode=args.render_mode,
+            refine_boundaries=args.refine_boundaries,
+        )
+    except FileNotFoundError:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

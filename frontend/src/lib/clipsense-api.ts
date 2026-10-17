@@ -48,6 +48,23 @@ export interface HighlightClipInfo {
   status: "success" | "failed" | "skipped";
 }
 
+export interface BoundaryRefinementSummary {
+  refined: boolean;
+  original_start: number;
+  original_end: number;
+  original_duration: number;
+  refined_start: number;
+  refined_end: number;
+  refined_duration: number;
+  start_delta_sec: number;
+  end_delta_sec: number;
+  start_evidence_type?: string | null;
+  end_evidence_type?: string | null;
+  signals_used: string[];
+  rationale: string;
+  fallback_reason?: string | null;
+}
+
 export interface HighlightItem {
   candidate_id: string;
   rank: number;
