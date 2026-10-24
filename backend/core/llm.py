@@ -56,6 +56,14 @@ class LLMClient(ABC):
         pass
 
 
+AVAILABLE_FALLBACK_MODELS = [
+    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3.6-flash",
+    "gemini-3-flash-preview",
+]
+
+
 class GeminiLLMClient(LLMClient):
     """Google Gemini implementation using official google-genai SDK."""
 
@@ -79,62 +87,78 @@ class GeminiLLMClient(LLMClient):
     ) -> T:
         from google.genai import types
 
-        max_retries = max(self.config.max_retries, 6)
+        models_to_try = [self.model_name] + [m for m in AVAILABLE_FALLBACK_MODELS if m != self.model_name]
+        max_retries = max(self.config.max_retries, 3)
         backoff_sec = 2.0
 
-        for attempt in range(max_retries):
-            try:
-                logger.debug(
-                    f"Calling Gemini ({self.model_name}) attempt {attempt + 1}/{max_retries}..."
-                )
-                response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_schema=response_schema,
-                        temperature=self.config.temperature,
-                        max_output_tokens=self.config.max_output_tokens,
-                        system_instruction=system_instruction,
-                        thinking_config=types.ThinkingConfig(thinking_budget=0),
-                    ),
-                )
-
-                if not response.text:
-                    raise RuntimeError("Gemini returned empty response text.")
-
-                # Validate and parse into target Pydantic schema
-                parsed = response_schema.model_validate_json(response.text)
-                return parsed
-
-            except Exception as e:
-                err_str = str(e)
-                is_transient = any(
-                    err in err_str
-                    for err in ["429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE", "500", "timeout"]
-                )
-                if is_transient and attempt < max_retries - 1:
-                    sleep_time = backoff_sec
-                    # Extract explicit retry delay if provided by Gemini API
-                    match = re.search(r"retry in ([\d\.]+)s", err_str, re.IGNORECASE)
-                    if not match:
-                        match = re.search(r"'retryDelay':\s*'(\d+)s'", err_str)
-                    if match:
-                        sleep_time = float(match.group(1)) + 2.0
-                    elif "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                        sleep_time = max(backoff_sec, 25.0)
-
-                    logger.warning(
-                        f"Transient Gemini rate limit / error detected ({err_str[:120]}...). "
-                        f"Waiting {sleep_time:.1f}s before retry (attempt {attempt + 1}/{max_retries})..."
+        for model_idx, target_model in enumerate(models_to_try):
+            for attempt in range(max_retries):
+                try:
+                    logger.debug(
+                        f"Calling Gemini ({target_model}) attempt {attempt + 1}/{max_retries}..."
                     )
-                    time.sleep(sleep_time)
-                    backoff_sec = max(backoff_sec * 2.0, 10.0)
-                else:
-                    logger.error(f"Fatal Gemini LLM failure: {e}")
-                    raise RuntimeError(f"Gemini LLM inference failed: {e}") from e
+                    response = self.client.models.generate_content(
+                        model=target_model,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            response_schema=response_schema,
+                            temperature=self.config.temperature,
+                            max_output_tokens=self.config.max_output_tokens,
+                            system_instruction=system_instruction,
+                            thinking_config=types.ThinkingConfig(thinking_budget=0),
+                        ),
+                    )
 
-        raise RuntimeError(f"Exceeded max retries ({max_retries}) calling Gemini LLM.")
+                    if not response.text:
+                        raise RuntimeError(f"Gemini ({target_model}) returned empty response text.")
+
+                    # Validate and parse into target Pydantic schema
+                    parsed = response_schema.model_validate_json(response.text)
+                    if self.model_name != target_model:
+                        logger.info(f"Updated primary LLM model to {target_model}")
+                        self.model_name = target_model
+                    return parsed
+
+                except Exception as e:
+                    err_str = str(e)
+                    is_daily_exhausted = (
+                        "RESOURCE_EXHAUSTED" in err_str and (
+                            "daily" in err_str.lower()
+                            or "free_tier_requests" in err_str
+                            or "retry in" in err_str.lower()
+                            or "21051" in err_str
+                        )
+                    )
+                    if is_daily_exhausted and model_idx < len(models_to_try) - 1:
+                        next_model = models_to_try[model_idx + 1]
+                        logger.warning(
+                            f"Daily quota reached on model {target_model}. Automatically switching to fallback model {next_model}..."
+                        )
+                        break  # Break inner retry loop to switch to next model immediately
+
+                    is_rate_limit = any(err in err_str for err in ["429", "RESOURCE_EXHAUSTED"])
+                    is_transient = is_rate_limit or any(
+                        err in err_str for err in ["503", "UNAVAILABLE", "500", "timeout"]
+                    )
+                    if is_transient and attempt < max_retries - 1:
+                        sleep_time = (15.0 * (attempt + 1)) if is_rate_limit else (backoff_sec * (2 ** attempt))
+                        logger.warning(
+                            f"Transient Gemini rate limit / error detected ({err_str[:120]}...). "
+                            f"Waiting {sleep_time:.1f}s before retry (attempt {attempt + 1}/{max_retries})...."
+                        )
+                        time.sleep(sleep_time)
+                    elif model_idx < len(models_to_try) - 1 and (is_rate_limit or "NOT_FOUND" in err_str):
+                        next_model = models_to_try[model_idx + 1]
+                        logger.warning(
+                            f"Error on {target_model} ({err_str[:100]}...). Switching to fallback model {next_model}..."
+                        )
+                        break
+                    else:
+                        logger.warning(f"Gemini LLM inference attempt failed: {e}")
+                        raise RuntimeError(f"Gemini LLM inference failed: {e}") from e
+
+        raise RuntimeError(f"Exceeded all retries and fallback models calling Gemini LLM.")
 
 
 class MockLLMClient(LLMClient):

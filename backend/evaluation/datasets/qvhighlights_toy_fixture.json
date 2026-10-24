@@ -1,0 +1,47 @@
+{
+  "dataset_name": "QVHighlights_Toy_Validation_Suite",
+  "dataset_type": "development",
+  "description": "Validation fixture formatted for QVHighlights benchmark protocol (NeurIPS 2021). Documents query-conditioned moments vs query-marginalized consensus intervals. For engineering protocol verification only.",
+  "samples": [
+    {
+      "sample_id": "qvh_sample_conversation_90s",
+      "sample_type": "development",
+      "video_path": "tests/sample_conversational_90s.mp4",
+      "duration_sec": 90.0,
+      "segment_duration_sec": 2.0,
+      "run_dir": "runs/representative_90s_validation",
+      "reference_spans": [
+        {
+          "span_id": "qvh_ref_consensus_moment_01",
+          "start_time": 0.091,
+          "end_time": 27.27,
+          "label": "query_marginalized_highlight",
+          "annotation_source": "qvhighlights_consensus",
+          "description": "Speaker explains healthy fear of parents and discipline"
+        }
+      ],
+      "queries": [
+        {
+          "query_id": "q_01",
+          "query_text": "The speaker argues that kids get away with too much nowadays",
+          "relevant_windows": [[0.091, 27.27]]
+        },
+        {
+          "query_id": "q_02",
+          "query_text": "Discussion on family boundaries and disciplinary methods",
+          "relevant_windows": [[5.97, 24.55]]
+        }
+      ],
+      "saliency_scores": [
+        4.5, 4.8, 5.0, 5.0, 4.8, 4.5, 4.2, 4.0, 4.0, 3.8,
+        3.5, 3.2, 3.0, 3.5, 3.8, 4.0, 4.2, 4.5, 4.8, 4.5,
+        4.0, 3.8, 3.5, 3.2, 3.0, 2.5, 2.0, 1.8, 1.5, 1.5,
+        1.5, 1.8, 2.0, 2.2, 2.5, 2.8, 3.0, 2.8, 2.5, 2.2,
+        2.0, 2.0, 2.2, 2.5, 2.8
+      ],
+      "metadata": {
+        "protocol_note": "Evaluated in query-free mode via query-marginalized consensus intervals."
+      }
+    }
+  ]
+}

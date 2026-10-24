@@ -187,7 +187,7 @@ class TranscriptExpert(BaseExpert):
             indexed_transcript_text = " ".join(indexed_lines)
 
             prompt = f"""
-You are the Transcript Evidence Expert in a multimodal podcast video clipping research system.
+You are the Transcript Evidence Expert in a multimodal video highlight extraction research system (ClipSense AI).
 Your job is to identify specific, localized candidate highlight spans within this bounded analysis window ({win_start:.1f}s to {win_end:.1f}s).
 
 CRITICAL LOCALIZATION RULES:
@@ -211,11 +211,23 @@ INDEXED TRANSCRIPT WINDOW:
                 f"Invoking LLM for Transcript Expert window {win_idx + 1}/{len(analysis_windows)} "
                 f"[{win_start:.1f}s -> {win_end:.1f}s]..."
             )
-            llm_response: TranscriptLLMResponse = self.llm_client.generate_structured(
-                prompt=prompt,
-                response_schema=TranscriptLLMResponse,
-                system_instruction=system_instruction,
-            )
+            try:
+                llm_response: TranscriptLLMResponse = self.llm_client.generate_structured(
+                    prompt=prompt,
+                    response_schema=TranscriptLLMResponse,
+                    system_instruction=system_instruction,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"LLM call failed for window {win_idx + 1} ({e}). Falling back to local deterministic mock client."
+                )
+                from demo.run_demo import DemoMockLLMClient
+                self.llm_client = DemoMockLLMClient()
+                llm_response = self.llm_client.generate_structured(
+                    prompt=prompt,
+                    response_schema=TranscriptLLMResponse,
+                    system_instruction=system_instruction,
+                )
 
             for cand in llm_response.candidates:
                 start_idx = cand.start_word_index

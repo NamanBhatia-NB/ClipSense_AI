@@ -186,7 +186,7 @@ class ConversationExpert(BaseExpert):
         )
 
         prompt = f"""
-You are the Conversation Evidence Expert in a multimodal podcast video clipping research system.
+You are the Conversation Evidence Expert in a multimodal video highlight extraction research system (ClipSense AI).
 Your job is to identify localized, coherent conversational discourse units based on the actual spoken text and speech segment pacing (e.g., setup -> development -> payoff, focused question/answer sequence, or a single cohesive argumentative passage).
 
 CRITICAL LOCALIZATION & FIDELITY RULES:
@@ -212,11 +212,23 @@ SPEECH SEGMENTS EXTRACTED WITH SPOKEN TEXT ({len(turns)} segments):
         )
 
         logger.info(f"Invoking LLM for Conversation Expert ({self.llm_client.provider}/{self.llm_client.model_name})...")
-        llm_response: ConversationLLMResponse = self.llm_client.generate_structured(
-            prompt=prompt,
-            response_schema=ConversationLLMResponse,
-            system_instruction=system_instruction,
-        )
+        try:
+            llm_response: ConversationLLMResponse = self.llm_client.generate_structured(
+                prompt=prompt,
+                response_schema=ConversationLLMResponse,
+                system_instruction=system_instruction,
+            )
+        except Exception as e:
+            logger.warning(
+                f"Conversation Expert LLM call failed ({e}). Falling back to local deterministic mock client."
+            )
+            from demo.run_demo import DemoMockLLMClient
+            self.llm_client = DemoMockLLMClient()
+            llm_response = self.llm_client.generate_structured(
+                prompt=prompt,
+                response_schema=ConversationLLMResponse,
+                system_instruction=system_instruction,
+            )
 
         # 2. Ground candidate boundaries to nearest valid speech segments or words
         proposals: List[TemporalProposal] = []

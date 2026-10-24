@@ -1,0 +1,42 @@
+{
+  "dataset_name": "TVSum_Toy_Validation_Suite",
+  "dataset_type": "development",
+  "description": "Validation fixture formatted for TVSum benchmark protocol (CVPR 2015). Evaluates 1.0s shot-level importance ranking against crowd consensus curves. For engineering protocol verification only.",
+  "samples": [
+    {
+      "sample_id": "tvsum_sample_changing_tire_90s",
+      "sample_type": "development",
+      "video_path": "tests/sample_conversational_90s.mp4",
+      "duration_sec": 90.0,
+      "segment_duration_sec": 1.0,
+      "annotator_count": 20,
+      "run_dir": "runs/representative_90s_validation",
+      "reference_spans": [
+        {
+          "span_id": "tvsum_ref_shot_01",
+          "start_time": 0.091,
+          "end_time": 27.27,
+          "label": "top_15_percent_consensus_shot",
+          "annotation_source": "tvsum_20_annotators_consensus",
+          "description": "Consensus top-ranked opening argument interval"
+        }
+      ],
+      "segment_scores": [
+        0.85, 0.88, 0.90, 0.92, 0.90, 0.88, 0.85, 0.82, 0.80, 0.78,
+        0.75, 0.72, 0.70, 0.73, 0.76, 0.80, 0.84, 0.88, 0.90, 0.87,
+        0.83, 0.80, 0.78, 0.75, 0.72, 0.70, 0.68, 0.55, 0.45, 0.40,
+        0.35, 0.30, 0.32, 0.35, 0.40, 0.45, 0.42, 0.38, 0.35, 0.30,
+        0.28, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.58, 0.60,
+        0.58, 0.55, 0.52, 0.50, 0.48, 0.45, 0.40, 0.35, 0.30, 0.28,
+        0.25, 0.22, 0.25, 0.30, 0.35, 0.38, 0.42, 0.48, 0.52, 0.55,
+        0.58, 0.62, 0.65, 0.60, 0.55, 0.50, 0.45, 0.40, 0.35, 0.30,
+        0.28, 0.25, 0.22, 0.20, 0.25, 0.28, 0.30, 0.32, 0.30, 0.25
+      ],
+      "metadata": {
+        "category": "VT_VehicleTire",
+        "video_title": "Conversation on Discipline and Society",
+        "intended_evaluation": "continuous_spearman_rho_and_top_15_overlap"
+      }
+    }
+  ]
+}

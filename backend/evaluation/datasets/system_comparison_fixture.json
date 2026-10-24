@@ -1,0 +1,27 @@
+{
+  "dataset_name": "ClipSense_W11_System_Comparison_Suite",
+  "dataset_type": "development",
+  "description": "Comparative benchmark evaluation fixture across Systems A (Transcript-only), B (Simple Multimodal Aggregation), C (Existing MTER), and D (MTER + Boundary Refinement).",
+  "samples": [
+    {
+      "sample_id": "representative_conversational_90s",
+      "sample_type": "development",
+      "video_path": "tests/sample_conversational_90s.mp4",
+      "duration_sec": 90.0,
+      "run_dir": "runs/representative_90s_validation",
+      "reference_spans": [
+        {
+          "span_id": "dev_ref_opening_argument",
+          "start_time": 0.091,
+          "end_time": 27.27,
+          "label": "opening_thematic_highlight",
+          "annotation_source": "manual_dev_debug",
+          "description": "Opening thematic monologue introducing healthy fear and parent discipline"
+        }
+      ],
+      "metadata": {
+        "purpose": "w11_system_comparison"
+      }
+    }
+  ]
+}

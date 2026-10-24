@@ -1,15 +1,18 @@
 """
-Evaluation CLI Entrypoint (W6)
+Evaluation CLI Entrypoint (W11)
 
 Usage:
     python -m evaluation.run_evaluation [options]
 
 Examples:
-    # Run development validation fixture across all 6 modes:
-    python -m evaluation.run_evaluation --dataset evaluation/datasets/dev_fixture.json --mock-llm
+    # 4-System comparison (Systems A, B, C, D) on dev fixture with mock LLM:
+    python -m evaluation.run_evaluation --systems A,B,C,D --mock-llm
 
-    # Run specific modes:
-    python -m evaluation.run_evaluation --dataset evaluation/datasets/dev_fixture.json --modes baseline,all_experts_no_mter,mter_full
+    # Run TVSum adapter on TVSum fixture:
+    python -m evaluation.run_evaluation --dataset evaluation/datasets/tvsum_toy_fixture.json --adapter tvsum
+
+    # Run specific modes with HTML report:
+    python -m evaluation.run_evaluation --modes baseline,all_experts_no_mter,mter_full,system_d_mter_refined --html
 """
 
 import argparse
@@ -39,20 +42,31 @@ from evaluation.baseline import (
     LegacyTranscriptBaselineSelector,
 )
 from evaluation.benchmark_orchestrator import BenchmarkOrchestrator
-from evaluation.dataset import load_benchmark_dataset
+from evaluation.dataset import load_benchmark_dataset_with_annotations
 from evaluation.schemas import ExperimentMode
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("clipsense.evaluation.cli")
 
-ALL_MODES: List[ExperimentMode] = [
+ALL_MODES: List[str] = [
     "baseline",
+    "system_a_transcript_only",
+    "all_experts_no_mter",
+    "system_b_simple_aggregation",
+    "mter_full",
+    "system_c_mter",
+    "system_d_mter_refined",
     "transcript_conversation",
     "transcript_conversation_visual",
     "transcript_conversation_prosody",
-    "all_experts_no_mter",
-    "mter_full",
 ]
+
+SYSTEM_SHORTCUTS = {
+    "A": "system_a_transcript_only",
+    "B": "system_b_simple_aggregation",
+    "C": "system_c_mter",
+    "D": "system_d_mter_refined",
+}
 
 
 class EvaluationMockLLMClient(MockLLMClient):
@@ -78,7 +92,7 @@ class EvaluationMockLLMClient(MockLLMClient):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ClipSense Research Evaluation Runner (W6)")
+    parser = argparse.ArgumentParser(description="ClipSense Research Evaluation Runner (W11)")
     parser.add_argument(
         "--dataset",
         type=str,
@@ -86,16 +100,28 @@ def main():
         help="Path to benchmark dataset JSON manifest.",
     )
     parser.add_argument(
+        "--adapter",
+        type=str,
+        default=None,
+        help="Dataset adapter name ('interval', 'tvsum', 'qvhighlights', 'rhapsody').",
+    )
+    parser.add_argument(
+        "--systems",
+        type=str,
+        default=None,
+        help="Comma-separated system shortcuts to evaluate: 'A,B,C,D'. Overrides --modes.",
+    )
+    parser.add_argument(
         "--modes",
         type=str,
-        default=",".join(ALL_MODES),
+        default="baseline,all_experts_no_mter,mter_full,system_d_mter_refined",
         help="Comma-separated experiment modes to evaluate.",
     )
     parser.add_argument(
         "--output-dir",
         type=str,
         default="runs/evaluation_run",
-        help="Directory to store evaluation results and report.",
+        help="Directory to store evaluation results and reports.",
     )
     parser.add_argument(
         "--cache-dir",
@@ -119,15 +145,37 @@ def main():
         default=0.10,
         help="Minimum tIoU threshold for Hungarian bipartite matching acceptance (default: 0.10).",
     )
+    parser.add_argument(
+        "--html",
+        action="store_true",
+        default=True,
+        help="Generate rich HTML dashboard report (default: True).",
+    )
+    parser.add_argument(
+        "--budget-k",
+        type=int,
+        default=None,
+        help="Optional fixed top-K candidate budget per episode across all evaluated systems (e.g. --budget-k 1).",
+    )
 
     args = parser.parse_args()
 
-    # Parse modes
-    requested_modes = [m.strip() for m in args.modes.split(",") if m.strip()]
-    for m in requested_modes:
-        if m not in ALL_MODES:
-            logger.error(f"Invalid mode: '{m}'. Supported modes: {ALL_MODES}")
-            sys.exit(1)
+    # Parse requested modes or systems shortcut
+    if args.systems:
+        sys_tokens = [s.strip().upper() for s in args.systems.split(",") if s.strip()]
+        requested_modes = []
+        for tok in sys_tokens:
+            if tok in SYSTEM_SHORTCUTS:
+                requested_modes.append(SYSTEM_SHORTCUTS[tok])
+            else:
+                logger.error(f"Unknown system shortcut '{tok}'. Choose from A, B, C, D.")
+                sys.exit(1)
+    else:
+        requested_modes = [m.strip() for m in args.modes.split(",") if m.strip()]
+        for m in requested_modes:
+            if m not in ALL_MODES:
+                logger.error(f"Invalid mode: '{m}'. Supported modes: {ALL_MODES}")
+                sys.exit(1)
 
     # Resolve paths relative to backend root if needed
     dataset_path = pathlib.Path(args.dataset)
@@ -149,8 +197,11 @@ def main():
     else:
         cache_dir = str(out_dir / "baseline_cache")
 
-    logger.info(f"Loading dataset from: {dataset_path}")
-    dataset = load_benchmark_dataset(str(dataset_path))
+    logger.info(f"Loading dataset from: {dataset_path} (adapter: {args.adapter or 'auto'})")
+    dataset, segment_annotations = load_benchmark_dataset_with_annotations(
+        dataset_path=str(dataset_path),
+        adapter_name=args.adapter,
+    )
 
     # Resolve sample run_dir relative to backend root if not absolute
     for s in dataset.samples:
@@ -185,20 +236,25 @@ def main():
     ablation_runner = AblationRunner(baseline_selector=baseline_selector)
     orchestrator = BenchmarkOrchestrator(ablation_runner=ablation_runner)
 
-    logger.info(f"Starting evaluation across modes: {requested_modes}")
+    budget_desc = f"fixed budget K={args.budget_k}" if args.budget_k is not None else "natural selection (uncapped)"
+    logger.info(f"Starting evaluation across modes: {requested_modes} [{budget_desc}]")
     report = orchestrator.evaluate_dataset(
         dataset=dataset,
         modes=requested_modes,
         cache_dir=cache_dir,
         min_match_iou=args.min_match_iou,
+        segment_annotations=segment_annotations if segment_annotations else None,
+        budget_k=args.budget_k,
     )
 
-    # Generate Markdown Report
+    # Generate Markdown and HTML reports
     md_content = orchestrator.generate_markdown_report(report)
+    html_content = orchestrator.generate_html_report(report) if args.html else None
 
     # Save outputs
     json_path = out_dir / "eval_results.json"
     md_path = out_dir / "eval_report.md"
+    html_path = out_dir / "eval_report.html"
 
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(report.model_dump(), f, indent=2)
@@ -206,11 +262,17 @@ def main():
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(md_content)
 
+    if html_content:
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
+
     print("\n" + "=" * 80)
     print(md_content)
     print("=" * 80)
     logger.info(f"Evaluation results saved to {json_path}")
-    logger.info(f"Markdown report saved to {md_path}\n")
+    logger.info(f"Markdown report saved to {md_path}")
+    if html_content:
+        logger.info(f"HTML dashboard saved to {html_path}\n")
 
 
 if __name__ == "__main__":

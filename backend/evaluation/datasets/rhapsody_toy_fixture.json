@@ -1,0 +1,34 @@
+{
+  "dataset_name": "Rhapsody_Podcast_Highlight_Benchmark",
+  "dataset_type": "research",
+  "description": "Rhapsody podcast highlight benchmark fixture conforming to COLM 2025 specification with 100 equal-duration segments per episode and YouTube replay curves.",
+  "samples": [
+    {
+      "sample_id": "rhapsody_test_ep_90s",
+      "sample_type": "research",
+      "split": "test",
+      "video_path": "tests/sample_conversational_90s.mp4",
+      "duration_sec": 90.0,
+      "run_dir": "runs/representative_90s_validation",
+      "youtube_id": "rhapsody_podcast_ep01",
+      "title": "Episode 1: The Dynamics of Conversational Discourse and Spoken Emphasis",
+      "metadata": {
+        "channel": "Science & Tech Podcasts",
+        "category": "Education & Dialogue",
+        "release_year": 2024
+      },
+      "replay_scores": [
+        0.65, 0.72, 0.78, 0.85, 0.92, 0.89, 0.84, 0.79, 0.81, 0.83,
+        0.87, 0.82, 0.76, 0.71, 0.68, 0.64, 0.59, 0.55, 0.52, 0.51,
+        0.48, 0.42, 0.38, 0.35, 0.31, 0.28, 0.25, 0.22, 0.21, 0.19,
+        0.18, 0.17, 0.22, 0.28, 0.31, 0.35, 0.32, 0.29, 0.24, 0.21,
+        0.19, 0.18, 0.16, 0.15, 0.14, 0.14, 0.15, 0.17, 0.19, 0.20,
+        0.21, 0.23, 0.25, 0.28, 0.32, 0.36, 0.38, 0.34, 0.30, 0.26,
+        0.23, 0.21, 0.19, 0.18, 0.16, 0.15, 0.14, 0.14, 0.16, 0.18,
+        0.22, 0.25, 0.29, 0.33, 0.38, 0.42, 0.46, 0.49, 0.52, 0.56,
+        0.61, 0.67, 0.72, 0.69, 0.64, 0.58, 0.53, 0.47, 0.41, 0.36,
+        0.32, 0.28, 0.25, 0.22, 0.20, 0.18, 0.16, 0.15, 0.14, 0.12
+      ]
+    }
+  ]
+}

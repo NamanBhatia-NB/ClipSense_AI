@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import pathlib
+import time
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
@@ -41,6 +42,10 @@ class BaselineConfig(BaseModel):
     # Execution mode: 'live_inference' (API call) or 'cached_inference' (load from disk)
     inference_mode: Literal["live_inference", "cached_inference"] = "live_inference"
     cache_dir: Optional[str] = None
+    inter_window_delay_sec: float = Field(
+        default_factory=lambda: float(os.getenv("BASELINE_WINDOW_DELAY_SEC", "2.0")),
+        description="Delay in seconds between successive window LLM calls to respect API rate limits"
+    )
 
 
 class BaselineLLMCandidate(BaseModel):
@@ -177,6 +182,9 @@ class LegacyTranscriptBaselineSelector:
                 f"The duration should be between {self.config.min_candidate_duration_sec}s and "
                 f"{self.config.max_candidate_duration_sec}s."
             )
+
+            if self.config.inter_window_delay_sec > 0:
+                time.sleep(self.config.inter_window_delay_sec)
 
             try:
                 response: BaselineLLMResponse = self.llm_client.generate_structured(

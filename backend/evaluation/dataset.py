@@ -13,13 +13,15 @@ included in research evaluation reports.
 import json
 import logging
 import pathlib
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
+from evaluation.adapters import get_dataset_adapter
 from evaluation.schemas import (
     BenchmarkDataset,
     BenchmarkSample,
     ReferenceHighlight,
     SampleType,
+    SegmentImportanceAnnotation,
 )
 
 logger = logging.getLogger("clipsense.evaluation.dataset")
@@ -28,6 +30,7 @@ logger = logging.getLogger("clipsense.evaluation.dataset")
 def load_benchmark_dataset(
     dataset_path: str,
     required_sample_type: Optional[SampleType] = None,
+    adapter_name: Optional[str] = None,
 ) -> BenchmarkDataset:
     """
     Loads and validates a benchmark dataset from a JSON file.
@@ -38,6 +41,10 @@ def load_benchmark_dataset(
     path = pathlib.Path(dataset_path).resolve()
     if not path.exists():
         raise FileNotFoundError(f"Benchmark dataset manifest not found: {path}")
+
+    if adapter_name:
+        adapter = get_dataset_adapter(adapter_name)
+        return adapter.load_dataset(str(path), required_sample_type=required_sample_type)
 
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -69,6 +76,24 @@ def load_benchmark_dataset(
         f"samples (type: {dataset.dataset_type})."
     )
     return dataset
+
+
+def load_benchmark_dataset_with_annotations(
+    dataset_path: str,
+    required_sample_type: Optional[SampleType] = None,
+    adapter_name: Optional[str] = None,
+) -> Tuple[BenchmarkDataset, Dict[str, SegmentImportanceAnnotation]]:
+    """
+    Loads benchmark dataset and extracts any available segment-level importance annotations.
+    """
+    dataset = load_benchmark_dataset(
+        dataset_path=dataset_path,
+        required_sample_type=required_sample_type,
+        adapter_name=adapter_name,
+    )
+    adapter = get_dataset_adapter(adapter_name or "interval")
+    seg_ann = adapter.extract_segment_annotations(dataset_path)
+    return dataset, seg_ann
 
 
 def create_synthetic_regression_fixture() -> BenchmarkDataset:
