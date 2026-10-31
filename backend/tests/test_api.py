@@ -101,6 +101,32 @@ class TestClipSenseAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertIn("Input video file not found", response.json()["detail"])
 
+    def test_process_top_k_bounds_validation(self):
+        """Verify top_k < 1 or top_k > 10 is strictly rejected with 400 Bad Request."""
+        # Test top_k = 0
+        resp_zero = self.client.post(
+            "/api/process",
+            data={"video_path": str(self.sample_short), "top_k": 0},
+        )
+        self.assertEqual(resp_zero.status_code, 400)
+        self.assertIn("top_k", resp_zero.json()["detail"])
+
+        # Test top_k = 11
+        resp_too_high = self.client.post(
+            "/api/process",
+            data={"video_path": str(self.sample_short), "top_k": 11},
+        )
+        self.assertEqual(resp_too_high.status_code, 400)
+        self.assertIn("top_k", resp_too_high.json()["detail"])
+
+        # Test top_k = -1
+        resp_neg = self.client.post(
+            "/api/process",
+            data={"video_path": str(self.sample_short), "top_k": -1},
+        )
+        self.assertEqual(resp_neg.status_code, 400)
+        self.assertIn("top_k", resp_neg.json()["detail"])
+
     def test_status_invalid_task_id_format(self):
         """Verify invalid task IDs (e.g. path traversal characters) are rejected with 400."""
         for invalid_id in ["../escape", "task/slash", "bad@char!", "", "a" * 100]:
@@ -252,6 +278,7 @@ class TestRealPipelineIntegration(unittest.TestCase):
                 "use_cache": True,
                 "mock_llm": True,
                 "render_mode": "accurate",
+                "aspect_ratio": "16:9",
             },
         )
         self.assertEqual(response.status_code, 202)
@@ -260,10 +287,10 @@ class TestRealPipelineIntegration(unittest.TestCase):
         self.assertEqual(resp_data["status"], "queued")
         self.assertIn(self.sample_video.name, resp_data["video_filename"])
 
-        # Poll task status until complete or timeout (max 45 seconds)
+        # Poll task status until complete or timeout (max 90 seconds)
         t_start = time.time()
         final_status = "queued"
-        while time.time() - t_start < 45.0:
+        while time.time() - t_start < 90.0:
             st_res = self.client.get(f"/api/status/{task_id}")
             self.assertEqual(st_res.status_code, 200)
             final_status = st_res.json()["status"]

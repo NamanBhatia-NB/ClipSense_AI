@@ -90,8 +90,9 @@ All weights and thresholds are configurable prototype parameters in MTERConfig:
 """
 
 import logging
+import re
 import time
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 from app.config import MTERConfig, config
 from core.schemas import (
@@ -127,6 +128,29 @@ def compute_temporal_interval_iou(s1: float, e1: float, s2: float, e2: float) ->
     return inter / union if union > 0.0 else 0.0
 
 
+def compute_union_duration(intervals: List[Tuple[float, float]]) -> float:
+    """
+    Computes the total continuous duration of the union of 1D intervals,
+    correctly merging overlapping and contiguous spans to measure non-redundant coverage.
+    """
+    if not intervals:
+        return 0.0
+    valid = [(s, e) for s, e in intervals if e > s]
+    if not valid:
+        return 0.0
+    sorted_intervals = sorted(valid, key=lambda x: (x[0], x[1]))
+    merged: List[Tuple[float, float]] = []
+    curr_s, curr_e = sorted_intervals[0]
+    for s, e in sorted_intervals[1:]:
+        if s <= curr_e:
+            curr_e = max(curr_e, e)
+        else:
+            merged.append((curr_s, curr_e))
+            curr_s, curr_e = s, e
+    merged.append((curr_s, curr_e))
+    return float(sum(e - s for s, e in merged))
+
+
 class MTERReasoner:
     """
     Multimodal Temporal Evidence Reasoner (MTER) Prototype.
@@ -143,6 +167,7 @@ class MTERReasoner:
         bundle: CommonEvidenceBundle,
         top_k: Optional[int] = None,
         nms_iou_threshold: Optional[float] = None,
+        selection_mode: Optional[str] = None,
     ) -> Tuple[MTEROutput, EvidenceLedger]:
         """
         Executes the full W5 MTER reasoning procedure on a CommonEvidenceBundle.
@@ -158,15 +183,41 @@ class MTERReasoner:
         proposals_flat = self._apply_ablation_filtering(all_proposals_flat)
         total_proposals_count = len(proposals_flat)
 
+        # Determine modality availability (modalities that actually emitted proposals for this video)
+        available_modalities = [
+            m for m in ["transcript", "conversation", "visual", "prosody"]
+            if getattr(bundle, f"{m}_evidence", None) and getattr(bundle, f"{m}_evidence").proposals
+        ]
+        if not available_modalities and proposals_flat:
+            available_modalities = sorted(list({p[0] for p in proposals_flat}))
+        modality_availability = {
+            m: (m in available_modalities) for m in ["transcript", "conversation", "visual", "prosody"]
+        }
+        n_available = max(1, len(available_modalities))
+
         ledger = EvidenceLedger(
             run_id=bundle.video_id,
             video_duration=video_duration,
             total_proposals=total_proposals_count,
+            modality_availability=modality_availability,
         )
 
         if not proposals_flat:
             logger.warning(f"No proposals available for reasoning on {bundle.video_id} (ablation: {self.config.ablation_mode})")
             ledger.decision_summary = f"No expert evidence proposals available for reasoning (ablation: {self.config.ablation_mode})."
+            ledger.filtering_stages = {
+                "initial_candidate_intervals": 0,
+                "passed_bounds_and_duration": 0,
+                "passed_acceptance_threshold": 0,
+                "survived_nms_suppression": 0,
+                "final_selected_highlights": 0,
+            }
+            ledger.redundancy_metrics = {
+                "total_selected_duration_sec": 0.0,
+                "union_selected_duration_sec": 0.0,
+                "redundancy_ratio": 1.0,
+                "temporal_coverage_ratio": 0.0,
+            }
             output = MTEROutput(
                 video_id=bundle.video_id,
                 candidates=[],
@@ -189,6 +240,16 @@ class MTERReasoner:
         all_conflicts: List[TemporalConflict] = []
 
         candidate_evaluations: List[Dict[str, Any]] = []
+        total_pairs_generated = 0
+        rejected_by_rule = {
+            "inverted_bounds": 0,
+            "out_of_video_bounds": 0,
+            "duration_too_short": 0,
+            "duration_too_long": 0,
+            "below_acceptance_threshold": 0,
+            "nms_overlap_suppressed": 0,
+            "budget_cap_exceeded": 0,
+        }
 
         # 3. Analyze each event region independently
         for region_idx, (event_region, region_props) in enumerate(event_regions_with_props):
@@ -244,7 +305,7 @@ class MTERReasoner:
             all_conflicts.extend(region_conflicts)
 
             # 4. Generate candidate intervals ONLY within this event region
-            # (strictly preventing cross-pairing between unrelated event regions)
+            total_pairs_generated += len(start_clusters) * len(end_clusters)
             for s_cl in start_clusters:
                 for e_cl in end_clusters:
                     c_start = s_cl.cluster_center
@@ -253,6 +314,7 @@ class MTERReasoner:
 
                     # Validate bounds
                     if c_start >= c_end:
+                        rejected_by_rule["inverted_bounds"] += 1
                         ledger.rejected_intervals.append({
                             "region_id": event_region.region_id,
                             "start": c_start,
@@ -263,6 +325,7 @@ class MTERReasoner:
                         continue
 
                     if c_start < 0.0 or c_end > video_duration + 1e-4:
+                        rejected_by_rule["out_of_video_bounds"] += 1
                         ledger.rejected_intervals.append({
                             "region_id": event_region.region_id,
                             "start": c_start,
@@ -273,6 +336,7 @@ class MTERReasoner:
                         continue
 
                     if dur < self.config.min_candidate_duration_sec:
+                        rejected_by_rule["duration_too_short"] += 1
                         ledger.rejected_intervals.append({
                             "region_id": event_region.region_id,
                             "start": c_start,
@@ -286,6 +350,7 @@ class MTERReasoner:
                         continue
 
                     if dur > self.config.max_candidate_duration_sec:
+                        rejected_by_rule["duration_too_long"] += 1
                         ledger.rejected_intervals.append({
                             "region_id": event_region.region_id,
                             "start": c_start,
@@ -298,7 +363,7 @@ class MTERReasoner:
                         })
                         continue
 
-                    # Evaluate candidate interval
+                    # Evaluate candidate interval with normalized available modalities
                     eval_record = self._evaluate_candidate_interval(
                         c_start,
                         c_end,
@@ -308,6 +373,8 @@ class MTERReasoner:
                         region_props,
                         region_conflicts,
                         event_region,
+                        available_modalities=available_modalities,
+                        n_available=n_available,
                     )
                     candidate_evaluations.append(eval_record)
 
@@ -328,22 +395,8 @@ class MTERReasoner:
             for ev in candidate_evaluations
         ]
 
-        if not candidate_evaluations:
-            logger.warning("No candidate intervals satisfied duration and temporal constraints.")
-            ledger.decision_summary = (
-                "No candidate interval satisfied temporal bounds and duration constraints "
-                f"[{self.config.min_candidate_duration_sec:.1f}s - {self.config.max_candidate_duration_sec:.1f}s]."
-            )
-            output = MTEROutput(
-                video_id=bundle.video_id,
-                candidates=[],
-                ledger=ledger,
-                execution_time_sec=time.time() - start_time_proc,
-            )
-            return output, ledger
-
-        # 5. Select the best-supported candidates via Non-Maximum Suppression (W8)
-        # Deterministically sort by composite_score descending, then modality diversity, then duration proximity
+        # 5. Selection Protocol (Supporting Natural Selection vs Fixed-Budget Selection)
+        # Sort candidates deterministically: composite_score descending, then diversity, then duration proximity
         candidate_evaluations.sort(
             key=lambda x: (
                 x["metrics"].composite_score,
@@ -353,46 +406,141 @@ class MTERReasoner:
             reverse=True,
         )
 
-        effective_top_k = top_k if top_k is not None else getattr(self.config, "top_k", 1)
+        mode = selection_mode or getattr(self.config, "selection_mode", "fixed_budget")
+        if mode == "fixed_budget":
+            effective_mode = "fixed_budget"
+            effective_top_k = top_k if top_k is not None else getattr(self.config, "top_k", 1)
+        else:
+            effective_mode = "natural"
+            effective_top_k = top_k
+
         effective_nms_iou = (
             nms_iou_threshold
             if nms_iou_threshold is not None
             else getattr(self.config, "nms_iou_threshold", 0.3)
         )
+        acceptance_threshold = getattr(self.config, "natural_acceptance_threshold", 0.40)
+        max_duration_budget = getattr(self.config, "max_total_selected_duration_sec", None)
 
-        top_eval = candidate_evaluations[0]
+        selected_candidates: List[MTERCandidate] = []
+        candidate_tokens_map: Dict[str, Set[str]] = {}
+        cumulative_duration = 0.0
 
-        # Populate conflicts affecting the top-selected candidate in ledger
-        ledger.conflicts_affecting_candidate = top_eval["affecting_conflicts"]
-        ledger.unresolved_conflicts_affecting_candidate = top_eval["unresolved_conflicts"]
+        if not candidate_evaluations:
+            logger.warning("No candidate intervals satisfied duration and temporal constraints.")
+            ledger.decision_summary = (
+                "No candidate interval satisfied temporal bounds and duration constraints "
+                f"[{self.config.min_candidate_duration_sec:.1f}s - {self.config.max_candidate_duration_sec:.1f}s]."
+            )
+        elif effective_mode == "natural":
+            # Natural selection mode: variable number of candidates (including zero) based on acceptance rule, NMS, and duration budget
+            for ev in candidate_evaluations:
+                c_score = ev["metrics"].composite_score
+                if c_score < acceptance_threshold:
+                    rejected_by_rule["below_acceptance_threshold"] += 1
+                    continue
 
-        # Build top-ranked candidate
-        selected_candidate = self._build_candidate_from_eval(top_eval, len(all_conflicts))
-        ledger.selected_candidate = selected_candidate
-        ledger.decision_summary = selected_candidate.decision_summary
+                # Check temporal IoU, asymmetric interval overlap, and transcript near-duplicate suppression
+                is_suppressed, reason, supp_by, details = self._check_candidate_suppression(
+                    ev, selected_candidates, candidate_tokens_map, effective_nms_iou
+                )
+                if is_suppressed:
+                    rejected_by_rule["nms_overlap_suppressed"] += 1
+                    ledger.rejected_intervals.append({
+                        "region_id": ev["region_id"],
+                        "start": ev["start"],
+                        "end": ev["end"],
+                        "duration": ev["duration"],
+                        "reason": reason,
+                    })
+                    ledger.suppression_records.append({
+                        "candidate_id": ev["candidate_id"],
+                        "suppressed_by": supp_by,
+                        "reason": reason,
+                        **details,
+                    })
+                    continue
 
-        # Select Top-K non-overlapping candidates using Non-Maximum Suppression (NMS)
-        selected_candidates: List[MTERCandidate] = [selected_candidate]
+                # Check cumulative duration budget if configured
+                if max_duration_budget is not None and (cumulative_duration + ev["duration"] > max_duration_budget):
+                    rejected_by_rule["budget_cap_exceeded"] += 1
+                    continue
 
-        if effective_top_k > 1:
-            for ev in candidate_evaluations[1:]:
+                cand_obj = self._build_candidate_from_eval(ev, len(all_conflicts), available_modalities)
+                selected_candidates.append(cand_obj)
+                candidate_tokens_map[cand_obj.candidate_id] = ev.get("transcript_tokens", set())
+                cumulative_duration += ev["duration"]
+
+        else:
+            # Fixed-budget selection mode: at most effective_top_k candidates passing NMS and duration budget
+            for ev in candidate_evaluations:
                 if len(selected_candidates) >= effective_top_k:
                     break
-                # Suppress candidate if temporal IoU with any higher-ranked candidate exceeds threshold
-                is_suppressed = False
-                for existing in selected_candidates:
-                    iou = compute_temporal_interval_iou(
-                        ev["start"],
-                        ev["end"],
-                        existing.proposed_start,
-                        existing.proposed_end,
-                    )
-                    if iou > effective_nms_iou:
-                        is_suppressed = True
-                        break
-                if not is_suppressed:
-                    cand_obj = self._build_candidate_from_eval(ev, len(all_conflicts))
-                    selected_candidates.append(cand_obj)
+
+                is_suppressed, reason, supp_by, details = self._check_candidate_suppression(
+                    ev, selected_candidates, candidate_tokens_map, effective_nms_iou
+                )
+                if is_suppressed:
+                    rejected_by_rule["nms_overlap_suppressed"] += 1
+                    ledger.rejected_intervals.append({
+                        "region_id": ev["region_id"],
+                        "start": ev["start"],
+                        "end": ev["end"],
+                        "duration": ev["duration"],
+                        "reason": reason,
+                    })
+                    ledger.suppression_records.append({
+                        "candidate_id": ev["candidate_id"],
+                        "suppressed_by": supp_by,
+                        "reason": reason,
+                        **details,
+                    })
+                    continue
+
+                if max_duration_budget is not None and (cumulative_duration + ev["duration"] > max_duration_budget):
+                    rejected_by_rule["budget_cap_exceeded"] += 1
+                    continue
+
+                cand_obj = self._build_candidate_from_eval(ev, len(all_conflicts), available_modalities)
+                selected_candidates.append(cand_obj)
+                candidate_tokens_map[cand_obj.candidate_id] = ev.get("transcript_tokens", set())
+                cumulative_duration += ev["duration"]
+
+        # Calculate filtering waterfall and redundancy diagnostics
+        passed_acc = len([ev for ev in candidate_evaluations if ev["metrics"].composite_score >= acceptance_threshold])
+        filtering_stages = {
+            "initial_candidate_intervals": total_pairs_generated,
+            "passed_bounds_and_duration": len(candidate_evaluations),
+            "passed_acceptance_threshold": passed_acc,
+            "survived_nms_suppression": len(selected_candidates),
+            "final_selected_highlights": len(selected_candidates),
+        }
+
+        union_dur = compute_union_duration([(c.proposed_start, c.proposed_end) for c in selected_candidates])
+        tot_dur = sum(c.duration for c in selected_candidates)
+        redundancy_metrics = {
+            "total_selected_duration_sec": round(tot_dur, 2),
+            "union_selected_duration_sec": round(union_dur, 2),
+            "redundancy_ratio": round(tot_dur / union_dur, 3) if union_dur > 0.0 else 1.0,
+            "temporal_coverage_ratio": round(union_dur / video_duration, 4) if video_duration > 0.0 else 0.0,
+        }
+
+        ledger.selection_mode = effective_mode
+        ledger.filtering_stages = filtering_stages
+        ledger.redundancy_metrics = redundancy_metrics
+        ledger.rejected_by_rule = rejected_by_rule
+        ledger.selected_candidate = selected_candidates[0] if selected_candidates else None
+
+        if selected_candidates:
+            top_eval = [ev for ev in candidate_evaluations if ev["candidate_id"] == selected_candidates[0].candidate_id][0]
+            ledger.conflicts_affecting_candidate = top_eval.get("affecting_conflicts", [])
+            ledger.unresolved_conflicts_affecting_candidate = top_eval.get("unresolved_conflicts", [])
+            ledger.decision_summary = selected_candidates[0].decision_summary
+        else:
+            ledger.decision_summary = (
+                f"No candidate interval satisfied selection criteria in {effective_mode} mode "
+                f"(evaluated: {len(candidate_evaluations)}, acceptance threshold: {acceptance_threshold:.2f})."
+            )
 
         output = MTEROutput(
             video_id=bundle.video_id,
@@ -403,13 +551,74 @@ class MTERReasoner:
 
         return output, ledger
 
+    def _check_candidate_suppression(
+        self,
+        candidate_eval: Dict[str, Any],
+        selected_candidates: List[MTERCandidate],
+        candidate_tokens_map: Dict[str, Set[str]],
+        effective_nms_iou: float,
+    ) -> Tuple[bool, Optional[str], Optional[str], Dict[str, float]]:
+        """
+        Evaluates temporal IoU, asymmetric interval overlap, and transcript token similarity
+        against already selected candidates to suppress redundant near-duplicate clips.
+        Avoids suppressing distinct clips that merely discuss the same broad topic.
+        """
+        c_start = candidate_eval["start"]
+        c_end = candidate_eval["end"]
+        c_dur = candidate_eval["duration"]
+        c_tokens = candidate_eval.get("transcript_tokens", set())
+
+        max_shorter_ratio = getattr(self.config, "max_shorter_interval_overlap_ratio", 0.30)
+        transcript_sim_thresh = getattr(self.config, "transcript_similarity_threshold", 0.50)
+
+        for existing in selected_candidates:
+            iou = compute_temporal_interval_iou(c_start, c_end, existing.proposed_start, existing.proposed_end)
+            intersection = max(0.0, min(c_end, existing.proposed_end) - max(c_start, existing.proposed_start))
+            shorter_dur = min(c_dur, existing.duration)
+            shorter_ratio = (intersection / shorter_dur) if shorter_dur > 0 else 0.0
+
+            e_tokens = candidate_tokens_map.get(existing.candidate_id, set())
+            union_tokens = c_tokens | e_tokens
+            inter_tokens = c_tokens & e_tokens
+            token_jaccard = (len(inter_tokens) / len(union_tokens)) if union_tokens else 0.0
+
+            details = {
+                "temporal_iou": round(float(iou), 3),
+                "shorter_overlap_ratio": round(float(shorter_ratio), 3),
+                "transcript_similarity": round(float(token_jaccard), 3),
+            }
+
+            # 1. Standard Temporal IoU NMS
+            if iou > effective_nms_iou:
+                reason = f"Temporal IoU ({iou:.3f} > threshold {effective_nms_iou:.2f}) with selected candidate {existing.candidate_id}"
+                return True, reason, existing.candidate_id, details
+
+            # 2. Asymmetric interval overlap on shorter clip
+            if shorter_ratio > max_shorter_ratio and (iou > 0.08 or token_jaccard > 0.20):
+                reason = (
+                    f"Asymmetric interval overlap ({shorter_ratio*100:.1f}% of shorter interval > threshold {max_shorter_ratio*100:.1f}%) "
+                    f"with {existing.candidate_id} (tIoU: {iou:.2f}, token similarity: {token_jaccard:.2f})"
+                )
+                return True, reason, existing.candidate_id, details
+
+            # 3. High transcript token overlap for near-duplicate content
+            if token_jaccard >= transcript_sim_thresh and intersection > 0.0:
+                reason = (
+                    f"Near-duplicate transcript similarity ({token_jaccard:.2f} >= threshold {transcript_sim_thresh:.2f}) "
+                    f"with {existing.candidate_id} (temporal intersection: {intersection:.2f}s)"
+                )
+                return True, reason, existing.candidate_id, details
+
+        return False, None, None, {}
+
     def _build_candidate_from_eval(
         self,
         eval_data: Dict[str, Any],
         total_conflicts_count: int,
+        available_modalities: Optional[List[str]] = None,
     ) -> MTERCandidate:
         """Constructs a validated MTERCandidate from an evaluated candidate dictionary."""
-        decision_summary = self._synthesize_decision_summary(eval_data, total_conflicts_count)
+        decision_summary = self._synthesize_decision_summary(eval_data, total_conflicts_count, available_modalities)
         affecting = eval_data.get("affecting_conflicts", [])
         unresolved = eval_data.get("unresolved_conflicts", [])
         metrics = eval_data["metrics"]
@@ -439,7 +648,6 @@ class MTERReasoner:
             semantic_verification_status="passed" if metrics.inherited_contextual_evidence >= 0.6 else "flagged",
             decision_summary=decision_summary,
         )
-
 
     def _apply_ablation_filtering(
         self,
@@ -472,11 +680,20 @@ class MTERReasoner:
         region_props: List[Tuple[str, TemporalProposal]],
         region_conflicts: List[TemporalConflict],
         event_region: EventRegion,
+        available_modalities: Optional[List[str]] = None,
+        n_available: int = 4,
     ) -> Dict[str, Any]:
         """
         Evaluates support, diversity, boundary agreement, contextual completeness,
         and conflict penalties for a candidate interval [start, end].
+        
+        Properly normalizes across available modalities so absent/unrun modalities
+        are not silently penalized as negative evidence.
         """
+        if available_modalities is None:
+            available_modalities = ["transcript", "conversation", "visual", "prosody"]
+            n_available = 4
+
         overlapping_props: Dict[str, List[TemporalProposal]] = {
             "transcript": [],
             "conversation": [],
@@ -522,36 +739,35 @@ class MTERReasoner:
                 modality_coverages[m] = float(best_cov)
                 modality_supports[m] = float(best_sup)
 
-        # Aggregate mean modality coverage support
-        t_sup = modality_supports["transcript"]
-        c_sup = modality_supports["conversation"]
-        v_sup = modality_supports["visual"]
-        p_sup = modality_supports["prosody"]
-        mean_mod_support = (t_sup + c_sup + v_sup + p_sup) / 4.0
+        # Aggregate mean modality coverage support normalized by available modalities
+        mean_mod_support = (
+            sum(modality_supports[m] for m in available_modalities) / n_available
+            if available_modalities else 0.0
+        )
 
-        # Modality presence: modalities with temporal overlap / coverage > 0
+        # Modality presence: available modalities with temporal overlap / coverage > 0
         modalities_present = [
-            m for m in ["transcript", "conversation", "visual", "prosody"]
+            m for m in available_modalities
             if modality_coverages[m] > 0.0
         ]
 
         # Support strength tiers
         strong_support_modalities = [
-            m for m in ["transcript", "conversation", "visual", "prosody"]
+            m for m in available_modalities
             if modality_supports[m] >= 0.50
         ]
         moderate_support_modalities = [
-            m for m in ["transcript", "conversation", "visual", "prosody"]
+            m for m in available_modalities
             if 0.20 <= modality_supports[m] < 0.50
         ]
         weak_support_modalities = [
-            m for m in ["transcript", "conversation", "visual", "prosody"]
+            m for m in available_modalities
             if 0.05 <= modality_supports[m] < 0.20
         ]
 
-        # Modality Diversity: fraction of active modalities (with support >= active_modality_threshold)
+        # Modality Diversity: fraction of available modalities actively contributing
         active_modalities = [
-            m for m in ["transcript", "conversation", "visual", "prosody"]
+            m for m in available_modalities
             if modality_supports[m] >= self.config.active_modality_threshold
         ]
         modality_diversity = len(active_modalities) / 4.0
@@ -561,18 +777,17 @@ class MTERReasoner:
         temporal_agreement_iou = (sum(active_ious) / len(active_ious)) if active_ious else 0.0
 
         # 2. Boundary Agreement
-        s_experts_count = len(start_cluster.supporting_experts)
-        e_experts_count = len(end_cluster.supporting_experts)
+        s_avail_count = len([e for e in start_cluster.supporting_experts if e in available_modalities])
+        e_avail_count = len([e for e in end_cluster.supporting_experts if e in available_modalities])
         s_tightness = 1.0 / (1.0 + start_cluster.spread_sec)
         e_tightness = 1.0 / (1.0 + end_cluster.spread_sec)
 
         boundary_agreement = 0.5 * (
-            (s_experts_count / 4.0) * s_tightness +
-            (e_experts_count / 4.0) * e_tightness
+            (s_avail_count / n_available) * s_tightness +
+            (e_avail_count / n_available) * e_tightness
         )
 
         # 3. Explicit Boundary Support Separation
-        # boundary_activity_support: physical activity/transitions near boundary from visual or prosody
         act_support_start = 0.0
         act_support_end = 0.0
         for ref in start_cluster.member_proposals:
@@ -583,7 +798,6 @@ class MTERReasoner:
                 act_support_end = max(act_support_end, ref.confidence_estimate)
         boundary_activity_support = 0.5 * (act_support_start + act_support_end)
 
-        # linguistic_boundary_support: alignment to spoken word or speech segment boundaries
         ling_support_start = 0.0
         ling_support_end = 0.0
         for ref in start_cluster.member_proposals:
@@ -594,7 +808,7 @@ class MTERReasoner:
                 ling_support_end = max(ling_support_end, ref.confidence_estimate)
         linguistic_boundary_support = 0.5 * (ling_support_start + ling_support_end)
 
-        # 4. Contextual Evidence Inherited from W3 Proposals
+        # 4. Contextual Evidence Inherited from Contributing Proposals
         has_semantic_start = False
         for p in overlapping_props["transcript"] + overlapping_props["conversation"]:
             if abs(p.start_time - start) <= self.config.semantic_alignment_tolerance_sec:
@@ -673,16 +887,13 @@ class MTERReasoner:
         conflict_notes: List[str] = []
         conflict_pen = 0.0
 
-        # Boundary member proposal IDs for direct match
         start_member_ids = {r.proposal_id for r in start_cluster.member_proposals}
         end_member_ids = {r.proposal_id for r in end_cluster.member_proposals}
 
         for conf in region_conflicts:
-            # Conflict must belong to this candidate's event region
             if conf.event_region_id != event_region.region_id:
                 continue
 
-            # Validation: every proposal referenced by the conflict MUST belong to this candidate's event region
             conf_prop_ids = [ref.proposal_id for ref in conf.early_proposals + conf.late_proposals]
             if not all(pid in event_region.member_proposal_ids for pid in conf_prop_ids):
                 continue
@@ -706,7 +917,6 @@ class MTERReasoner:
 
             if affects_start or affects_end or affects_breadth:
                 affecting_conflicts.append(conf)
-                # An affecting conflict is unresolved if the boundary spread exceeds conflict_threshold_sec
                 if conf.temporal_delta_sec >= self.config.conflict_threshold_sec:
                     unresolved_conflicts.append(conf)
                     conflict_notes.append(conf.description)
@@ -718,7 +928,7 @@ class MTERReasoner:
         dur_pen = abs(duration - self.config.target_candidate_duration_sec) / self.config.max_candidate_duration_sec
 
         # 7. Composite Score Calculation (explicitly using documented weights)
-        composite = (
+        raw_composite = (
             self.config.weight_modality_support * mean_mod_support +
             self.config.weight_modality_diversity * modality_diversity +
             self.config.weight_boundary_agreement * boundary_agreement +
@@ -726,13 +936,31 @@ class MTERReasoner:
             self.config.weight_conflict_penalty * conflict_pen -
             self.config.weight_duration_penalty * dur_pen
         )
-        composite = max(0.0, min(1.0, composite))
+        composite = max(0.0, min(1.0, raw_composite))
+
+        # Detailed component breakdown for inspectable diagnostics
+        score_components = {
+            "mean_modality_support_unweighted": round(float(mean_mod_support), 4),
+            "modality_diversity_unweighted": round(float(modality_diversity), 4),
+            "boundary_agreement_unweighted": round(float(boundary_agreement), 4),
+            "inherited_contextual_unweighted": round(float(inherited_contextual_score), 4),
+            "conflict_penalty_unweighted": round(float(conflict_pen), 4),
+            "duration_penalty_unweighted": round(float(dur_pen), 4),
+            "modality_support_contrib": round(float(self.config.weight_modality_support * mean_mod_support), 4),
+            "modality_diversity_contrib": round(float(self.config.weight_modality_diversity * modality_diversity), 4),
+            "boundary_agreement_contrib": round(float(self.config.weight_boundary_agreement * boundary_agreement), 4),
+            "contextual_completeness_contrib": round(float(self.config.weight_contextual_completeness * inherited_contextual_score), 4),
+            "conflict_penalty_contrib": round(float(-self.config.weight_conflict_penalty * conflict_pen), 4),
+            "duration_penalty_contrib": round(float(-self.config.weight_duration_penalty * dur_pen), 4),
+            "raw_composite_score": round(float(raw_composite), 4),
+            "composite_score": round(float(composite), 4),
+        }
 
         metrics = CandidateSupportMetrics(
-            transcript_support=t_sup,
-            conversation_support=c_sup,
-            visual_support=v_sup,
-            prosody_support=p_sup,
+            transcript_support=modality_supports["transcript"],
+            conversation_support=modality_supports["conversation"],
+            visual_support=modality_supports["visual"],
+            prosody_support=modality_supports["prosody"],
             transcript_iou=modality_ious["transcript"],
             conversation_iou=modality_ious["conversation"],
             visual_iou=modality_ious["visual"],
@@ -753,7 +981,22 @@ class MTERReasoner:
             conflict_penalty=conflict_pen,
             duration_penalty=dur_pen,
             composite_score=composite,
+            score_components=score_components,
+            score_type="heuristic_evidence_strength",
         )
+
+        # Extract content tokens for near-duplicate transcript redundancy checking
+        cand_tokens: Set[str] = set()
+        stop_words = {
+            "the", "and", "a", "an", "to", "in", "it", "of", "that", "this", "is", "was",
+            "for", "on", "with", "as", "at", "by", "from", "be", "are", "or", "will",
+            "my", "you", "they", "we", "he", "she", "me", "him", "her", "us", "them", "but", "so"
+        }
+        for tp in overlapping_props["transcript"]:
+            raw_text = f"{tp.explanation or ''} {tp.supporting_features.get('start_word', '')} {tp.supporting_features.get('end_word', '')}"
+            for token in re.findall(r"\b[a-zA-Z]{3,}\b", raw_text.lower()):
+                if token not in stop_words:
+                    cand_tokens.add(token)
 
         cand_id = f"mter_cand_{event_region.region_id}_{start:.2f}_{end:.2f}"
 
@@ -780,17 +1023,28 @@ class MTERReasoner:
             "semantic_verification": semantic_crit,
             "start_cluster": start_cluster,
             "end_cluster": end_cluster,
+            "transcript_tokens": cand_tokens,
         }
 
-    def _synthesize_decision_summary(self, eval_record: Dict[str, Any], total_detected_conflicts: int) -> str:
+    def _synthesize_decision_summary(
+        self,
+        eval_record: Dict[str, Any],
+        total_detected_conflicts: int,
+        available_modalities: Optional[List[str]] = None,
+    ) -> str:
         """
         Synthesizes a concise, inspectable, factual decision summary distinguishing modality presence from support strength.
+        Explicitly frames evidence score as a heuristic ranking metric rather than a calibrated probability.
         """
         metrics: CandidateSupportMetrics = eval_record["metrics"]
         start = eval_record["start"]
         end = eval_record["end"]
         dur = eval_record["duration"]
 
+        if available_modalities is None:
+            available_modalities = ["transcript", "conversation", "visual", "prosody"]
+
+        avail_str = ", ".join(available_modalities)
         pres_str = ", ".join(metrics.modalities_present) if metrics.modalities_present else "none"
         strong_str = ", ".join(metrics.strong_support_modalities) if metrics.strong_support_modalities else "none"
         mod_str = ", ".join(metrics.moderate_support_modalities) if metrics.moderate_support_modalities else "none"
@@ -800,8 +1054,8 @@ class MTERReasoner:
         unresolved_count = len(eval_record["unresolved_conflicts"])
 
         lines = [
-            f"Interval [{start:.3f}s -> {end:.3f}s] ({dur:.2f}s) in {eval_record['region_id']} selected with composite evidence strength {metrics.composite_score:.2f}.",
-            f"Modalities with evidence: {len(metrics.modalities_present)}/4 ({pres_str}).",
+            f"Interval [{start:.3f}s -> {end:.3f}s] ({dur:.2f}s) in {eval_record['region_id']} selected with heuristic evidence score {metrics.composite_score:.2f} (non-calibrated ranking score).",
+            f"Available modalities ({len(available_modalities)}/4): {avail_str} | Modalities with evidence: {len(metrics.modalities_present)}/{len(available_modalities)} ({pres_str}).",
             f"Support strength breakdown: Strong: {strong_str} | Moderate: {mod_str} | Weak/secondary: {weak_str}.",
             f"Coverage: transcript={metrics.transcript_coverage:.2f}, conversation={metrics.conversation_coverage:.2f}, visual={metrics.visual_coverage:.2f}, prosody={metrics.prosody_coverage:.2f}.",
             f"Modality IoU: transcript={metrics.transcript_iou:.2f}, conversation={metrics.conversation_iou:.2f}, visual={metrics.visual_iou:.2f}, prosody={metrics.prosody_iou:.2f} (mean active IoU: {eval_record['iou']:.2f}).",

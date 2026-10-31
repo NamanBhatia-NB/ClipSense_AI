@@ -17,28 +17,6 @@ export default async function DashboardPage() {
         select: {
             credits: true,
             termsAccepted: true,
-            uploadedFiles: {
-                where: {
-                    uploaded: true
-                },
-                select: {
-                    id: true,
-                    s3Key: true,
-                    displayName: true,
-                    status: true,
-                    createdAt: true,
-                    _count: {
-                        select: {
-                            clips: true,
-                        },
-                    },
-                },
-            },
-            _count: {
-                select: {
-                    clips: true,
-                },
-            },
         },
     });
 
@@ -47,20 +25,10 @@ export default async function DashboardPage() {
         redirect("/accept-terms");
     }
 
-    const formattedFiles = userData.uploadedFiles.map((file) => ({
-        id: file.id,
-        s3Key: file.s3Key,
-        filename: file.displayName ?? "Unknown filename",
-        status: file.status,
-        clipsCount: file._count.clips,
-        createdAt: file.createdAt,
-    }));
-
     return (
         <DashboardClient
-            uploadedFiles={formattedFiles}
-            totalClipsCount={userData._count.clips}
             userCredits={userData.credits}
+            userId={session.user.id}
         />
     );
 }

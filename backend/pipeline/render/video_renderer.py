@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 from core.schemas import ClipExportResult, ClipsManifest, MTERCandidate
+from pipeline.render.caption_generator import burn_subtitles_ffmpeg, generate_karaoke_ass
+from pipeline.render.vertical_cropper import ActiveSpeakerCropper
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +185,9 @@ class VideoRenderer:
         rank: int = 1,
         video_duration: Optional[float] = None,
         mode: Optional[Literal["accurate", "fast"]] = None,
+        aspect_ratio: str = "16:9",
+        add_subtitles: bool = False,
+        transcript_words: Optional[List[Dict[str, Any]]] = None,
     ) -> ClipExportResult:
         """
         Extracts and renders a single highlight clip to disk using FFmpeg.
@@ -403,6 +408,57 @@ class VideoRenderer:
                 execution_time_sec=time.time() - t0,
             )
 
+        # 9. Optional: Active speaker vertical cropping (9:16)
+        if aspect_ratio == "9:16":
+            vert_path = dst_path.with_name(f"{dst_path.stem}_vert{dst_path.suffix}")
+            logger.info("Starting active speaker vertical cropping (9:16) on %s", dst_path.name)
+            cropper = ActiveSpeakerCropper(ffmpeg_bin=self.ffmpeg_bin)
+            crop_success = cropper.crop_video_vertical(dst_path, vert_path)
+            if crop_success and vert_path.exists() and vert_path.stat().st_size > 0:
+                vert_path.replace(dst_path)
+                logger.info("Successfully cropped %s to 9:16 vertical active speaker", dst_path.name)
+            else:
+                logger.warning("Active speaker cropping skipped or failed for %s, keeping original ratio", dst_path.name)
+
+        # 10. Optional: Dynamic karaoke subtitles
+        if add_subtitles and transcript_words:
+            ass_path = dst_path.with_name(f"{dst_path.stem}_sub.ass")
+            sub_video_path = dst_path.with_name(f"{dst_path.stem}_subtitled{dst_path.suffix}")
+            logger.info(
+                "Burning karaoke subtitles onto %s (clip: %.2fs -> %.2fs, words: %d)",
+                dst_path.name, start_time, end_time, len(transcript_words)
+            )
+            ass_ok = generate_karaoke_ass(
+                transcript_words=transcript_words,
+                clip_start=start_time,
+                clip_end=end_time,
+                output_ass_path=ass_path,
+                play_res_x=1080 if aspect_ratio == "9:16" else 1920,
+                play_res_y=1920 if aspect_ratio == "9:16" else 1080,
+            )
+            if ass_ok:
+                burn_ok = burn_subtitles_ffmpeg(
+                    video_path=dst_path,
+                    ass_path=ass_path,
+                    output_path=sub_video_path,
+                    ffmpeg_bin=self.ffmpeg_bin,
+                )
+                if burn_ok and sub_video_path.exists() and sub_video_path.stat().st_size > 0:
+                    sub_video_path.replace(dst_path)
+                    logger.info("Karaoke subtitles burned successfully onto %s", dst_path.name)
+                else:
+                    logger.warning("burn_subtitles_ffmpeg failed for %s", dst_path.name)
+            else:
+                logger.warning("generate_karaoke_ass generated no subtitles for clip interval [%.2f, %.2f]", start_time, end_time)
+            ass_path.unlink(missing_ok=True)
+        else:
+            logger.info(
+                "Subtitle burning skipped: add_subtitles=%s, transcript_words count=%d",
+                add_subtitles, len(transcript_words) if transcript_words else 0
+            )
+
+        final_file_size = dst_path.stat().st_size if dst_path.exists() else file_size
+
         return ClipExportResult(
             candidate_id=candidate_id,
             rank=rank,
@@ -413,9 +469,32 @@ class VideoRenderer:
             output_path=str(dst_path),
             status="success",
             error_message=None,
-            file_size_bytes=file_size,
+            file_size_bytes=final_file_size,
             render_mode=active_mode,
             execution_time_sec=time.time() - t0,
+        )
+
+    @staticmethod
+    def canonical_candidate_sort_key(cand: MTERCandidate) -> Tuple[float, float, float, float, str]:
+        """
+        Authoritative canonical ranking rule for MTER highlight candidates:
+        1. composite_score / confidence_estimate (descending)
+        2. temporal_agreement_iou (descending)
+        3. duration proximity to target duration 30s (descending)
+        4. proposed_start (deterministic tie-breaker: descending -start)
+        5. candidate_id (deterministic tie-breaker: ascending)
+        """
+        conf = getattr(cand, "confidence_estimate", 0.0) or 0.0
+        iou = getattr(cand, "temporal_agreement_iou", 0.0) or 0.0
+        dur = getattr(cand, "duration", 0.0) or 0.0
+        start = getattr(cand, "proposed_start", 0.0) or 0.0
+        cid = getattr(cand, "candidate_id", "") or ""
+        return (
+            round(float(conf), 5),
+            round(float(iou), 5),
+            round(-abs(float(dur) - 30.0), 5),
+            round(-float(start), 5),
+            str(cid),
         )
 
     def render_highlights(
@@ -427,6 +506,9 @@ class VideoRenderer:
         video_duration: Optional[float] = None,
         mode: Optional[Literal["accurate", "fast"]] = None,
         prefix: str = "highlight",
+        aspect_ratio: str = "16:9",
+        add_subtitles: bool = False,
+        transcript_words: Optional[List[Dict[str, Any]]] = None,
     ) -> ClipsManifest:
         """
         Renders physical MP4 highlight clips for a list of MTER candidates.
@@ -438,7 +520,8 @@ class VideoRenderer:
         clips_dir = out_base / "clips"
         clips_dir.mkdir(parents=True, exist_ok=True)
 
-        selected_candidates = candidates[:top_k] if top_k is not None else candidates
+        sorted_candidates = sorted(candidates, key=canonical_candidate_sort_key, reverse=True)
+        selected_candidates = sorted_candidates[:top_k] if top_k is not None else sorted_candidates
         total_requested = len(selected_candidates)
         active_mode = mode or self.default_mode
 
@@ -446,7 +529,7 @@ class VideoRenderer:
         success_count = 0
 
         for idx, cand in enumerate(selected_candidates, start=1):
-            clip_filename = f"{prefix}_{idx:02d}_{cand.candidate_id}.mp4"
+            clip_filename = f"{prefix}_{idx:02d}_{cand.proposed_start:.2f}_{cand.proposed_end:.2f}.mp4"
             clip_path = clips_dir / clip_filename
 
             res = self.render_clip(
@@ -458,9 +541,26 @@ class VideoRenderer:
                 rank=idx,
                 video_duration=video_duration,
                 mode=active_mode,
+                aspect_ratio=aspect_ratio,
+                add_subtitles=add_subtitles,
+                transcript_words=transcript_words,
             )
+            res.score = round(float(cand.confidence_estimate), 4)
             if cand.boundary_refinement is not None:
-                res.boundary_refinement = cand.boundary_refinement
+                rf = cand.boundary_refinement
+                res.boundary_refinement = rf
+                res.original_start = round(float(rf.original_start), 3)
+                res.original_end = round(float(rf.original_end), 3)
+                res.original_duration = round(float(rf.original_duration), 3)
+                res.refinement_status = "refined" if rf.refined else "not_refined"
+                res.fallback_reason = rf.fallback_reason
+            else:
+                res.original_start = round(float(cand.proposed_start), 3)
+                res.original_end = round(float(cand.proposed_end), 3)
+                res.original_duration = round(float(cand.duration), 3)
+                res.refinement_status = "not_refined"
+                res.fallback_reason = "Boundary refinement was not applied"
+
             exported_results.append(res)
             if res.status == "success":
                 success_count += 1
@@ -480,3 +580,7 @@ class VideoRenderer:
             f.write(manifest.model_dump_json(indent=2))
 
         return manifest
+
+
+# Module-level export for ranking consistency
+canonical_candidate_sort_key = VideoRenderer.canonical_candidate_sort_key

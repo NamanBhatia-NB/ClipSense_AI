@@ -65,6 +65,9 @@ temp_prosody/
 **/.idea/
 *.sublime-workspace
 .amazonq
+.agents/
+.gemini/
+*.orig
 
 # Legacy reference files, scratch scripts, and external modules
 backend/main.py
@@ -124,3 +127,18 @@ ai-podcast-clipper-backend/venv/
 ai-podcast-clipper-backend/env/
 ai-podcast-clipper-backend/.modal*
 ai-podcast-clipper-backend/brca1_analysis_plot.png
+*.zip
+
+# Interim evaluation runs and temporary packages
+backend/evaluation/rhapsody_sub3600_eval_output/
+backend/evaluation/rhapsody_sub3600_eval_output_corrected/
+backend/evaluation/human_eval_top1_pilot/
+backend/evaluation/human_eval_top1_pilot_corrected/
+backend/evaluation/human_eval_matched_pilot/
+backend/evaluation/human_eval_pack/
+backend/evaluation/human_eval_top1_pilot_final/
+backend/evaluation/*Copy*/
+backend/evaluation/* - Copy*/
+*.bak
+*backup*
+

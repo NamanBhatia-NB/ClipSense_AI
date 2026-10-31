@@ -73,7 +73,7 @@ export async function acceptTerms(): Promise<SignupResult> {
     });
 
     return { success: true };
-  } catch (error) {
+  } catch {
     return { success: false, error: "Failed to accept terms" };
   }
 }
@@ -92,7 +92,7 @@ export async function deleteAccount(): Promise<SignupResult> {
     });
 
     return { success: true };
-  } catch (error) {
+  } catch {
     return { success: false, error: "Failed to delete account" };
   }
 }

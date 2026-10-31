@@ -748,6 +748,11 @@ def run_demonstration(
     render_clips: bool = True,
     render_mode: str = "accurate",
     refine_boundaries: bool = True,
+    aspect_ratio: str = "9:16",
+    add_subtitles: bool = True,
+    selection_mode: Optional[str] = None,
+    natural_acceptance_threshold: Optional[float] = None,
+    max_total_selected_duration_sec: Optional[float] = None,
     progress_callback: Optional[Callable[[str, float, str], None]] = None,
 ) -> Dict[str, Any]:
     """
@@ -1037,8 +1042,15 @@ def run_demonstration(
     if progress_callback:
         progress_callback("mter", 0.80, "Executing MTER cross-modal arbitration and Top-K selection...")
     print("\n8. MTER (Multimodal Temporal Evidence Reasoner)")
-    reasoner = MTERReasoner(config.mter)
-    mter_output, mter_ledger = reasoner.reason(bundle, top_k=top_k)
+    mter_cfg = config.mter.model_copy()
+    if selection_mode:
+        mter_cfg.selection_mode = selection_mode
+    if natural_acceptance_threshold is not None:
+        mter_cfg.natural_acceptance_threshold = natural_acceptance_threshold
+    if max_total_selected_duration_sec is not None:
+        mter_cfg.max_total_selected_duration_sec = max_total_selected_duration_sec
+    reasoner = MTERReasoner(mter_cfg)
+    mter_output, mter_ledger = reasoner.reason(bundle, top_k=top_k, selection_mode=selection_mode)
 
     out_file = out_p / "mter_output.json"
     ledger_file = out_p / "mter_ledger.json"
@@ -1131,6 +1143,44 @@ def run_demonstration(
             fallback_to_reencode=config.render.fallback_to_reencode,
         )
         if renderer.is_available():
+            transcript_words = []
+            if hasattr(transcript_data, "words") and transcript_data.words:
+                transcript_words = [
+                    {"word": w.word, "start": float(w.start), "end": float(w.end)}
+                    for w in transcript_data.words
+                ]
+            elif hasattr(transcript_data, "segments") and transcript_data.segments:
+                for seg in transcript_data.segments:
+                    words_list = seg.words if hasattr(seg, "words") else []
+                    for w in words_list:
+                        transcript_words.append({
+                            "word": w.word if hasattr(w, "word") else str(w.get("word", "")),
+                            "start": float(w.start if hasattr(w, "start") else w.get("start", 0)),
+                            "end": float(w.end if hasattr(w, "end") else w.get("end", 0)),
+                        })
+            elif isinstance(transcript_data, dict):
+                raw_words = transcript_data.get("words") or []
+                if raw_words:
+                    transcript_words = [
+                        {
+                            "word": str(w.get("word", "") if isinstance(w, dict) else getattr(w, "word", "")),
+                            "start": float(w.get("start", 0) if isinstance(w, dict) else getattr(w, "start", 0)),
+                            "end": float(w.get("end", 0) if isinstance(w, dict) else getattr(w, "end", 0)),
+                        }
+                        for w in raw_words
+                    ]
+                else:
+                    for seg in transcript_data.get("segments", []):
+                        words_list = seg.get("words", []) if isinstance(seg, dict) else getattr(seg, "words", [])
+                        for w in words_list:
+                            transcript_words.append({
+                                "word": str(w.get("word", "") if isinstance(w, dict) else getattr(w, "word", "")),
+                                "start": float(w.get("start", 0) if isinstance(w, dict) else getattr(w, "start", 0)),
+                                "end": float(w.get("end", 0) if isinstance(w, dict) else getattr(w, "end", 0)),
+                            })
+
+            print(f"   - Highlight Subtitles:   {'ENABLED' if add_subtitles else 'DISABLED'} ({len(transcript_words)} words available)")
+
             clips_manifest = renderer.render_highlights(
                 source_video=v_path,
                 candidates=mter_output.candidates,
@@ -1138,6 +1188,9 @@ def run_demonstration(
                 top_k=top_k,
                 video_duration=total_duration,
                 mode=render_mode,
+                aspect_ratio=aspect_ratio,
+                add_subtitles=add_subtitles,
+                transcript_words=transcript_words,
             )
             # Also write top-level clips_manifest.json for convenience
             with open(out_p / "clips_manifest.json", "w", encoding="utf-8") as f:
@@ -1365,6 +1418,25 @@ def main():
         action="store_false",
         help="Disable boundary refinement stage (preserves raw MTER boundaries).",
     )
+    parser.add_argument(
+        "--aspect-ratio",
+        type=str,
+        default="9:16",
+        choices=["9:16", "16:9"],
+        help="Target aspect ratio: '9:16' (active speaker vertical video) or '16:9' (landscape).",
+    )
+    parser.add_argument(
+        "--add-subtitles",
+        action="store_true",
+        default=True,
+        help="Burn high-engagement word-by-word karaoke subtitles into exported clips (default: True).",
+    )
+    parser.add_argument(
+        "--no-subtitles",
+        dest="add_subtitles",
+        action="store_false",
+        help="Disable subtitle burning.",
+    )
 
     args = parser.parse_args()
 
@@ -1382,6 +1454,8 @@ def main():
             render_clips=args.render_clips,
             render_mode=args.render_mode,
             refine_boundaries=args.refine_boundaries,
+            aspect_ratio=args.aspect_ratio,
+            add_subtitles=args.add_subtitles,
         )
     except FileNotFoundError:
         sys.exit(1)

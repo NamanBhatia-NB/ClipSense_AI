@@ -4,7 +4,7 @@ import type { VariantProps } from "class-variance-authority";
 import { ArrowLeftIcon, CheckIcon, Lightbulb } from "lucide-react";
 import Link from "next/link";
 import { createCheckoutSession, type PriceId } from "~/actions/polar";
-import { Button, buttonVariants } from "~/components/ui/button";
+import { Button, type buttonVariants } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "~/components/ui/card";
 import { cn } from "~/lib/utils";
 
@@ -24,7 +24,7 @@ const plans: PricingPlan[] = [
     {
         title: "Small Pack",
         price: "$9.99",
-        description: "Perfect for ocassional podcast creators",
+        description: "Perfect for occasional content creators",
         features: ["50 credits", "No expiration", "Download all clips"],
         buttonText: "Buy 50 credits",
         buttonVariant: "outline",
@@ -33,7 +33,7 @@ const plans: PricingPlan[] = [
     {
         title: "Medium Pack",
         price: "$24.99",
-        description: "Best value for regular podcasters",
+        description: "Best value for regular video creators",
         features: ["150 credits", "No expiration", "Download all clips"],
         buttonText: "Buy 150 credits",
         buttonVariant: "default",
@@ -44,7 +44,7 @@ const plans: PricingPlan[] = [
     {
         title: "Large Pack",
         price: "$69.99",
-        description: "Ideal for podcast studios and agencies",
+        description: "Ideal for studios and production agencies",
         features: ["500 credits", "No expiration", "Download all clips"],
         buttonText: "Buy 500 credits",
         buttonVariant: "outline",
@@ -133,12 +133,12 @@ export default function BillingPage() {
                     <h3 className="mb-4 text-lg font-semibold">How credits work</h3>
                 </div>
                 <ul className="text-muted-foreground list-disc space-y-2 pl-5 text-sm">
-                    <li>1 credit = 1 clip of podcast processing</li>
+                    <li>1 credit = 1 clip of video processing</li>
                     <li>
-                        The program will create around 1 clip per 5 minutes of podcast
+                        The program will create around 1 clip per 5 minutes of video
                     </li>
                     <li>Credits never expire and can be used anytime</li>
-                    <li>Longer podcasts require more credits based on duration</li>
+                    <li>Longer videos require more credits based on duration</li>
                     <li>All packages are one-time purchases (not subscription)</li>
                 </ul>
             </div>

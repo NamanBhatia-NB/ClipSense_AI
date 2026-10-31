@@ -31,7 +31,7 @@ export function AcceptTermsForm() {
             } else {
                 setError(result.error ?? "Failed to accept terms");
             }
-        } catch (err) {
+        } catch {
             setError("An unexpected error occurred");
         } finally {
             setIsSubmitting(false);

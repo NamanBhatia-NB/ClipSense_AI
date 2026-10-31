@@ -150,10 +150,13 @@ class ClipBoundaryConfig(BaseModel):
 class LLMConfig(BaseModel):
     """Configurable settings for LLM reasoning in semantic experts."""
     provider: str = Field("gemini", description="LLM provider (e.g., 'gemini', 'mock')")
-    model_name: str = Field("gemini-2.5-flash", description="Model variant for structured semantic extraction")
+    model_name: str = Field(
+        default_factory=lambda: os.getenv("GEMINI_MODEL_NAME", "gemini-3.1-flash-lite"),
+        description="Model variant for structured semantic extraction"
+    )
     temperature: float = Field(0.2, description="Sampling temperature for deterministic extraction")
     max_output_tokens: int = Field(8192, description="Upper token limit on structured responses")
-    timeout_sec: float = Field(60.0, description="HTTP / RPC request timeout in seconds")
+    timeout_sec: float = Field(30.0, description="HTTP / RPC request timeout in seconds")
     max_retries: int = Field(3, description="Retry count for transient rate limits or server errors")
 
 
@@ -267,6 +270,32 @@ class MTERConfig(BaseModel):
         le=1.0,
         description="Temporal IoU threshold for Non-Maximum Suppression to prevent duplicate candidate exports"
     )
+    max_shorter_interval_overlap_ratio: float = Field(
+        0.30,
+        ge=0.0,
+        le=1.0,
+        description="Maximum allowed temporal overlap fraction relative to the shorter candidate interval duration"
+    )
+    transcript_similarity_threshold: float = Field(
+        0.50,
+        ge=0.0,
+        le=1.0,
+        description="Token-level transcript Jaccard overlap threshold for suppressing near-duplicate content"
+    )
+    selection_mode: Literal["natural", "fixed_budget"] = Field(
+        "fixed_budget",
+        description="Candidate selection mode: 'natural' (variable count based on acceptance threshold and overlap suppression) or 'fixed_budget' (capped at top_k)"
+    )
+    natural_acceptance_threshold: float = Field(
+        0.40,
+        ge=0.0,
+        le=1.0,
+        description="Minimum heuristic composite score required for candidate retention in natural selection mode"
+    )
+    max_total_selected_duration_sec: Optional[float] = Field(
+        None,
+        description="Optional upper bound on the cumulative duration in seconds of all selected candidates"
+    )
 
 
 class RenderConfig(BaseModel):
@@ -331,7 +360,7 @@ class AppConfig(BaseModel):
     auth_token: str = Field(default_factory=lambda: os.getenv("AUTH_TOKEN", "test-secret-token"))
     gemini_api_key: Optional[str] = Field(default_factory=lambda: os.getenv("GEMINI_API_KEY"))
     s3_bucket_name: str = Field(
-        default_factory=lambda: os.getenv("AWS_S3_BUCKET", "ai-podcast-clipper-saas-buckets")
+        default_factory=lambda: os.getenv("AWS_S3_BUCKET", "clipsense-ai-saas-buckets")
     )
     aws_region: str = Field(default_factory=lambda: os.getenv("AWS_REGION", "us-east-1"))
     temp_dir_base: str = Field(default_factory=lambda: os.getenv("CLIPSENSE_TEMP_DIR", "/tmp/clipsense"))

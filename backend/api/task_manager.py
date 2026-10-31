@@ -6,14 +6,16 @@ progress tracking, output directories, safe file streaming, and path traversal p
 """
 
 from concurrent.futures import ThreadPoolExecutor
+import json
 import logging
 import os
 import pathlib
 import re
+import shutil
 import threading
 import time
 import uuid
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from api.schemas import (
     BoundaryRefinementSummary,
@@ -173,8 +175,25 @@ class TaskManager:
         mter_output = task.get("mter_output")
         clips_manifest = task.get("clips_manifest")
 
-        candidates = mter_output.candidates if mter_output else []
-        manifest_clips = {c.rank: c for c in clips_manifest.clips} if clips_manifest else {}
+        raw_candidates = list(mter_output.candidates) if mter_output else []
+        # Canonical ranking key: composite score, agreement iou, duration proximity to 30s, start time, candidate_id
+        def _canonical_key(cand: Any) -> Tuple[float, float, float, float, str]:
+            conf = getattr(cand, "confidence_estimate", 0.0) or 0.0
+            iou = getattr(cand, "temporal_agreement_iou", 0.0) or 0.0
+            dur = getattr(cand, "duration", 0.0) or 0.0
+            start = getattr(cand, "proposed_start", 0.0) or 0.0
+            cid = getattr(cand, "candidate_id", "") or ""
+            return (
+                round(float(conf), 5),
+                round(float(iou), 5),
+                round(-abs(float(dur) - 30.0), 5),
+                round(-float(start), 5),
+                str(cid),
+            )
+
+        candidates = sorted(raw_candidates, key=_canonical_key, reverse=True)
+        manifest_by_id = {c.candidate_id: c for c in clips_manifest.clips} if clips_manifest else {}
+        manifest_by_rank = {c.rank: c for c in clips_manifest.clips} if clips_manifest else {}
 
         highlight_items: List[HighlightItem] = []
         for idx, cand in enumerate(candidates, start=1):
@@ -191,9 +210,9 @@ class TaskManager:
             )
 
             clip_meta: Optional[HighlightClipInfo] = None
-            if idx in manifest_clips:
-                c = manifest_clips[idx]
-                fname = pathlib.Path(c.output_path).name if c.output_path else f"highlight_{idx}.mp4"
+            c = manifest_by_id.get(cand.candidate_id) or manifest_by_rank.get(idx)
+            if c:
+                fname = pathlib.Path(c.output_path).name if c.output_path else f"highlight_{idx:02d}_{cand.proposed_start:.2f}_{cand.proposed_end:.2f}.mp4"
                 clip_meta = HighlightClipInfo(
                     filename=fname,
                     stream_url=f"/api/clips/{task_id}/{fname}",
@@ -276,6 +295,87 @@ class TaskManager:
 
         return target_path
 
+    def get_user_clips_dir(self, user_id: str) -> pathlib.Path:
+        """Resolve and ensure safe isolated directory for a given user's clips."""
+        safe_id = "".join(c for c in user_id if c.isalnum() or c in ("-", "_")).strip()
+        if not safe_id:
+            safe_id = "default_user"
+        user_dir = self.base_tasks_dir.parent / "users" / safe_id / "clips"
+        user_dir.mkdir(parents=True, exist_ok=True)
+        return user_dir
+
+    def get_user_clips(self, user_id: str) -> List[Dict[str, Any]]:
+        """Retrieve all locally exported clips for a given user."""
+        safe_id = "".join(c for c in user_id if c.isalnum() or c in ("-", "_")).strip()
+        manifest_file = self.base_tasks_dir.parent / "users" / safe_id / "user_manifest.json"
+        if not manifest_file.exists():
+            return []
+        try:
+            with open(manifest_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get("clips", [])
+        except Exception as e:
+            logger.warning(f"Failed to read user manifest for {user_id}: {e}")
+            return []
+
+    def record_user_clips(
+        self,
+        user_id: str,
+        task_id: str,
+        video_filename: str,
+        clips_manifest: Any,
+    ) -> None:
+        """Copy exported task clips to user storage and record manifest entry."""
+        if not clips_manifest or not getattr(clips_manifest, "clips", None):
+            return
+
+        safe_id = "".join(c for c in user_id if c.isalnum() or c in ("-", "_")).strip()
+        user_clips_dir = self.get_user_clips_dir(safe_id)
+        manifest_file = user_clips_dir.parent / "user_manifest.json"
+
+        existing_clips = []
+        if manifest_file.exists():
+            try:
+                with open(manifest_file, "r", encoding="utf-8") as f:
+                    existing_clips = json.load(f).get("clips", [])
+            except Exception:
+                existing_clips = []
+
+        import shutil
+        new_clips = []
+        for idx, c in enumerate(clips_manifest.clips, start=1):
+            if c.status == "success" and c.output_path:
+                src_path = pathlib.Path(c.output_path)
+                if src_path.exists():
+                    dst_filename = f"{task_id}_{src_path.name}"
+                    dst_path = user_clips_dir / dst_filename
+                    shutil.copy2(src_path, dst_path)
+
+                    clip_rank = getattr(c, "rank", idx)
+                    new_clips.append(
+                        {
+                            "clip_id": c.candidate_id,
+                            "task_id": task_id,
+                            "filename": dst_filename,
+                            "stream_url": f"/api/users/{safe_id}/clips/{dst_filename}",
+                            "download_url": f"/api/users/{safe_id}/clips/{dst_filename}?download=true",
+                            "source_video": video_filename,
+                            "start_time": c.start_time,
+                            "end_time": c.end_time,
+                            "duration": c.duration,
+                            "rank": clip_rank,
+                            "file_size_bytes": dst_path.stat().st_size,
+                            "created_at": time.time(),
+                        }
+                    )
+
+        combined_clips = new_clips + existing_clips
+        try:
+            with open(manifest_file, "w", encoding="utf-8") as f:
+                json.dump({"user_id": safe_id, "updated_at": time.time(), "clips": combined_clips}, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to write user manifest for {user_id}: {e}")
+
     def submit_processing(
         self,
         task_id: str,
@@ -285,11 +385,19 @@ class TaskManager:
         mock_llm: bool = False,
         render_mode: str = "accurate",
         refine_boundaries: bool = True,
+        aspect_ratio: str = "9:16",
+        add_subtitles: bool = True,
+        user_id: Optional[str] = None,
+        selection_mode: Optional[str] = None,
+        natural_acceptance_threshold: Optional[float] = None,
+        max_total_selected_duration_sec: Optional[float] = None,
     ) -> None:
         """Submit pipeline execution to background worker pool."""
         with self._lock:
             if task_id in self._tasks:
                 self._tasks[task_id]["video_path"] = video_path
+                if user_id:
+                    self._tasks[task_id]["user_id"] = user_id
 
         self.executor.submit(
             self._execute_pipeline,
@@ -300,6 +408,12 @@ class TaskManager:
             mock_llm,
             render_mode,
             refine_boundaries,
+            aspect_ratio,
+            add_subtitles,
+            user_id,
+            selection_mode,
+            natural_acceptance_threshold,
+            max_total_selected_duration_sec,
         )
 
     def _execute_pipeline(
@@ -311,6 +425,12 @@ class TaskManager:
         mock_llm: bool,
         render_mode: str,
         refine_boundaries: bool = True,
+        aspect_ratio: str = "9:16",
+        add_subtitles: bool = True,
+        user_id: Optional[str] = None,
+        selection_mode: Optional[str] = None,
+        natural_acceptance_threshold: Optional[float] = None,
+        max_total_selected_duration_sec: Optional[float] = None,
     ) -> None:
         """Execute the real ClipSense research pipeline in worker thread."""
         task = self.get_task(task_id)
@@ -324,6 +444,13 @@ class TaskManager:
         try:
             self.update_progress(task_id, "extraction", 0.10, "Extracting multimodal features...")
 
+            import importlib
+            import pipeline.render.caption_generator
+            import pipeline.render.video_renderer
+            import demo.run_demo
+            importlib.reload(pipeline.render.caption_generator)
+            importlib.reload(pipeline.render.video_renderer)
+            importlib.reload(demo.run_demo)
             from demo.run_demo import run_demonstration
 
             def progress_cb(stage: str, progress: float, message: str) -> None:
@@ -338,6 +465,11 @@ class TaskManager:
                 render_clips=True,
                 render_mode=render_mode,
                 refine_boundaries=refine_boundaries,
+                aspect_ratio=aspect_ratio,
+                add_subtitles=add_subtitles,
+                selection_mode=selection_mode,
+                natural_acceptance_threshold=natural_acceptance_threshold,
+                max_total_selected_duration_sec=max_total_selected_duration_sec,
                 progress_callback=progress_cb,
             )
 
@@ -345,6 +477,15 @@ class TaskManager:
             mter_out = result.get("mter_output") if isinstance(result, dict) else None
             clips_mf = result.get("clips_manifest") if isinstance(result, dict) else None
             tot_dur = result.get("total_duration", 0.0) if isinstance(result, dict) else 0.0
+
+            # If user_id is provided, record clips into user's local storage
+            if user_id and clips_mf:
+                self.record_user_clips(
+                    user_id=user_id,
+                    task_id=task_id,
+                    video_filename=task["video_filename"],
+                    clips_manifest=clips_mf,
+                )
 
             self.set_completed(
                 task_id=task_id,
@@ -357,7 +498,6 @@ class TaskManager:
 
         except Exception as e:
             logger.exception(f"Processing failed for task {task_id}: {e}")
-            # Sanitize error message to avoid leaking internal filepaths or secrets
             clean_err = str(e)
             if "backend" in clean_err.lower() or "\\" in clean_err or "/" in clean_err:
                 clean_err = "Internal pipeline execution error during video analysis"

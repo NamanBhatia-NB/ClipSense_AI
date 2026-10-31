@@ -67,6 +67,24 @@ class TranscriptExtractor:
             return _real_load(*args, **kwargs)
         torch.load = _compat_load
 
+        # Ensure torchaudio 2.8+ compatibility for PyAnnote / WhisperX (AudioMetaData deprecated/removed in 2.8+)
+        try:
+            import torchaudio
+            if not hasattr(torchaudio, "AudioMetaData"):
+                class AudioMetaData:
+                    def __init__(self, sample_rate: int = 16000, num_frames: int = 0, num_channels: int = 1, bits_per_sample: int = 16, encoding: str = "PCM_S"):
+                        self.sample_rate = sample_rate
+                        self.num_frames = num_frames
+                        self.num_channels = num_channels
+                        self.bits_per_sample = bits_per_sample
+                        self.encoding = encoding
+                torchaudio.AudioMetaData = AudioMetaData
+
+            if not hasattr(torchaudio, "list_audio_backends"):
+                torchaudio.list_audio_backends = lambda: ["soundfile"]
+        except Exception as patch_err:
+            logger.debug(f"torchaudio patch notice: {patch_err}")
+
         import whisperx
 
         logger.info(f"Loading WhisperX model '{self.model_name}' on {self.device} ({self.compute_type})...")

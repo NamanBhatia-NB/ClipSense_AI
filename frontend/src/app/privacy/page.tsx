@@ -8,9 +8,8 @@ export default function PrivacyPage() {
                     <h2 className="text-2xl font-semibold mb-4">1. Information We Collect</h2>
                     <ul className="list-disc pl-6 text-slate-600 space-y-2">
                         <li><strong>Account Information:</strong> Email address, name, and encrypted password.</li>
-                        <li><strong>Social Media Data:</strong> When you link third-party accounts (like Google/YouTube or Meta/Facebook/Instagram), we collect basic profile information, Page IDs, and secure OAuth access/refresh tokens.</li>
                         <li><strong>Content:</strong> Videos you upload for processing and the generated clips.</li>
-                        <li><strong>Usage Data:</strong> Processing history, clip generation data, and scheduling preferences.</li>
+                        <li><strong>Usage Data:</strong> Processing history and clip generation metrics.</li>
                         <li><strong>Payment Information:</strong> Processed securely through Polar.sh (we do not store credit card details).</li>
                     </ul>
                 </section>
@@ -18,33 +17,20 @@ export default function PrivacyPage() {
                 <section>
                     <h2 className="text-2xl font-semibold mb-4">2. How We Use Your Information</h2>
                     <ul className="list-disc pl-6 text-slate-600 space-y-2">
-                        <li>To provide our AI clip generation service.</li>
-                        <li><strong>To publish and schedule content directly to your connected social media platforms (YouTube, Facebook, Instagram) on your behalf.</strong></li>
+                        <li>To provide our AI multimodal highlight generation service.</li>
                         <li>To process payments and manage your credit balance.</li>
                         <li>To communicate service updates and provide customer support.</li>
                         <li>To monitor, maintain, debug, and improve the functionality, reliability, and security of our service.</li>
-                        <li>Google user data obtained through Google APIs is used only to provide, maintain, and improve the user-facing functionality of AI Podcast Clipper.</li>
-                        <li>We do not use Google user data to train generalized artificial intelligence or machine learning models.</li>
-                        <li>We do not use Google user data for advertising, marketing, profiling, or any purpose unrelated to providing our service.</li>
+                        <li>Google user data obtained through Google OAuth is used strictly for authentication and sign-in.</li>
+                        <li>We do not use user data to train generalized artificial intelligence or machine learning models.</li>
+                        <li>We do not sell user data or use it for advertising, marketing, or profiling.</li>
                     </ul>
                 </section>
 
                 <section>
-                    <h2 className="text-2xl font-semibold mb-4">3. Social Media Integrations & API Usage</h2>
-                    <p className="text-slate-600 mb-2">
-                        Our application utilizes official APIs to connect your social media accounts. By connecting these accounts, you agree to the respective platform&apos;s terms:
-                    </p>
+                    <h2 className="text-2xl font-semibold mb-4">3. Data Storage and Security</h2>
                     <ul className="list-disc pl-6 text-slate-600 space-y-2">
-                        <li><strong>Meta (Facebook & Instagram):</strong> We request access to your Pages and Instagram Business accounts solely for the purpose of publishing and scheduling video Reels that you initiate. We do not read your personal feed or messages.</li>
-                        <li><strong>Google (YouTube):</strong> We use YouTube API Services solely to upload, manage, schedule, and publish video content to YouTube accounts that users explicitly connect to our service. Google user data obtained through YouTube API Services is used only to provide user-requested functionality. We do not sell Google user data, use it for advertising purposes, or use it to train generalized AI or machine learning models. By using our service, you also agree to the<a href="https://www.youtube.com/t/terms" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">YouTube Terms of Service</a> and <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Google Privacy Policy</a>.</li>
-                    </ul>
-                </section>
-
-                <section>
-                    <h2 className="text-2xl font-semibold mb-4">4. Data Storage and Security</h2>
-                    <ul className="list-disc pl-6 text-slate-600 space-y-2">
-                        <li>Videos are stored securely on AWS S3.</li>
-                        <li>Social media OAuth tokens are encrypted and stored securely in our database.</li>
+                        <li>Uploaded videos and rendered clips are processed locally and securely on the server.</li>
                         <li>All data is encrypted in transit and at rest.</li>
                         <li>Passwords are hashed using industry-standard algorithms.</li>
                     </ul>
@@ -92,7 +78,7 @@ export default function PrivacyPage() {
                         </li>
 
                         <li>
-                            Google user data obtained through Google APIs is used solely to provide the functionality of AI Podcast Clipper.
+                            Google user data obtained through Google APIs is used solely to provide the functionality of ClipSense.
                         </li>
 
                         <li>
@@ -139,7 +125,7 @@ export default function PrivacyPage() {
                 <section>
                     <h2 className="text-2xl font-semibold mb-4">11. Contact</h2>
                     <p className="text-slate-600">
-                        For privacy concerns, data requests, or to request account deletion, please contact us at: <strong>aipodcastclipper@gmail.com</strong>.
+                        For privacy concerns, data requests, or to request account deletion, please contact us at: <strong>contact@clipsense.ai</strong>.
                     </p>
                 </section>
 

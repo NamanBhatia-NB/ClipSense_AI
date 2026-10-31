@@ -2,8 +2,6 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { type DefaultSession, type NextAuthConfig } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
-import Facebook from "next-auth/providers/facebook";
-// import Twitter from "next-auth/providers/twitter";
 import { env } from "~/env";
 import { comparePasswords } from "~/lib/auth";
 import { db } from "~/server/db";
@@ -64,45 +62,15 @@ export const authConfig = {
         return user;
       },
     }),
-    Google({
-      clientId: env.AUTH_GOOGLE_ID,
-      clientSecret: env.AUTH_GOOGLE_SECRET,
-      allowDangerousEmailAccountLinking: true,
-      authorization: {
-        params: {
-          prompt: "consent",
-          access_type: "offline", // CRITICAL: Forces Google to give a refresh_token
-          response_type: "code",
-          // CRITICAL: Adds YouTube upload permission
-          scope: "openid email profile https://www.googleapis.com/auth/youtube.upload",
-        },
-      },
-    }),
-    Facebook({
-      clientId: env.AUTH_FACEBOOK_ID, // ADD TO ENV
-      clientSecret: env.AUTH_FACEBOOK_SECRET, // ADD TO ENV
-      allowDangerousEmailAccountLinking: true,
-      authorization: {
-        params: {
-          // CRITICAL: Adds Instagram and Facebook Page posting permissions
-          scope: "email,public_profile,pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish,business_management",
-        },
-      },
-    }),
-    /*
-    Twitter({
-      clientId: env.AUTH_TWITTER_ID,
-      clientSecret: env.AUTH_TWITTER_SECRET,
-      authorization: {
-        // EXPLICITLY define the URL so NextAuth doesn't lose it
-        url: "https://twitter.com/i/oauth2/authorize",
-        params: {
-          // 'offline.access' is required to get a refresh_token
-          scope: "tweet.read tweet.write users.read media.write offline.access",
-        },
-      },
-    }),
-    */
+    ...(env.AUTH_GOOGLE_ID && env.AUTH_GOOGLE_SECRET
+      ? [
+          Google({
+            clientId: env.AUTH_GOOGLE_ID,
+            clientSecret: env.AUTH_GOOGLE_SECRET,
+            allowDangerousEmailAccountLinking: true,
+          }),
+        ]
+      : []),
   ],
   events: {
     createUser: async ({ user }) => {

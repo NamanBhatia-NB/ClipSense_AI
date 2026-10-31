@@ -12,13 +12,12 @@ import {
   Scissors,
   Zap,
   CheckCircle2,
-  Play
+  Sparkles
 } from "lucide-react";
 import NavHeader from "~/components/nav-header";
 import { auth } from "~/server/auth";
 import { db } from "~/server/db";
 import Image from "next/image";
-import { ClipSenseStudio } from "~/components/clipsense-studio";
 
 export default async function HomePage() {
   const session = await auth();
@@ -50,29 +49,29 @@ export default async function HomePage() {
 
         <div className="container px-4 md:px-6 mx-auto text-center">
           <Badge variant="secondary" className="mb-6 px-4 py-2 text-sm border-primary/20 bg-primary/5 text-primary rounded-full animate-fade-in-up">
-            ✨ AI-Powered Podcast Editor
+            ✨ Multimodal Temporal Evidence Reasoner (MTER)
           </Badge>
 
           <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold tracking-tight text-slate-900 mb-6 max-w-4xl mx-auto leading-tight">
-            Turn Long Podcasts into <br />
+            Turn Long Videos into <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-violet-600">
-              Viral Shorts
+              Viral Vertical Shorts
             </span> in Seconds
           </h1>
 
           <p className="text-lg md:text-xl text-slate-600 mb-10 max-w-2xl mx-auto leading-relaxed">
-            Stop spending hours editing. <br /> Our AI automatically identifies highlights, crops active speakers, adds captions, and creates vertical clips for YouTube Shorts, Instagram Reels & TikTok.
+            Stop spending hours editing. <br /> Automatically identify highlights, crop active speakers, add captions, and create vertical clips for YouTube Shorts, Instagram Reels & TikTok.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-            <Button size="default" className="h-14 px-8 text-lg rounded-full shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30 transition-all w-full sm:w-auto" asChild>
+            <Button size="default" className="h-14 px-8 text-lg rounded-full shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30 transition-all w-full sm:w-auto bg-blue-600 hover:bg-blue-700" asChild>
               <Link href="/dashboard">
                 Try for Free <ArrowRight className="ml-2 h-5 w-5" />
               </Link>
             </Button>
             <Button variant="outline" size="default" className="h-14 px-8 text-lg rounded-full w-full sm:w-auto" asChild>
-              <Link href="#demo">
-                <Play className="mr-2 h-5 w-5 fill-current" /> Watch Demo
+              <Link href="/dashboard">
+                <Sparkles className="mr-2 h-5 w-5 text-blue-600" /> Open Studio
               </Link>
             </Button>
           </div>
@@ -95,32 +94,13 @@ export default async function HomePage() {
             Trusted by creators from
           </p>
           <div className="flex flex-wrap justify-center gap-8 md:gap-16 opacity-40 grayscale hover:grayscale-0 transition-all duration-500">
-            {/* Placeholder logos - replace with SVGs later */}
+            {/* Placeholder logos */}
             <span className="text-xl font-bold">YouTube</span>
             <span className="text-xl font-bold">Spotify</span>
             <span className="text-xl font-bold">TikTok</span>
             <span className="text-xl font-bold">Instagram</span>
             <span className="text-xl font-bold">LinkedIn</span>
           </div>
-        </div>
-      </section>
-
-      {/* 2.5 INTERACTIVE CLIPSENSE RESEARCH DEMO STUDIO */}
-      <section className="py-20 bg-slate-50 border-b" id="demo">
-        <div className="container px-4 md:px-6 mx-auto">
-          <div className="text-center mb-10">
-            <Badge variant="outline" className="mb-3 px-3 py-1 text-xs border-blue-300 bg-blue-50 text-blue-700 rounded-full">
-              Live Multimodal Pipeline
-            </Badge>
-            <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-900 mb-3">
-              Test ClipSense AI Live
-            </h2>
-            <p className="text-slate-600 max-w-2xl mx-auto text-sm md:text-base">
-              Run speech transcription, conversational turn tracking, visual activity, and acoustic prosody directly through our local MTER consensus engine.
-            </p>
-          </div>
-
-          <ClipSenseStudio />
         </div>
       </section>
 
@@ -253,10 +233,10 @@ export default async function HomePage() {
             <div className="h-6 w-6 rounded-lg flex items-center justify-center">
               <Image src="/logo.png" alt="" width={20} height={20} />
             </div>
-            AI Podcast/Clipper
+            ClipSense
           </div>
           <p className="text-slate-500 text-sm">
-            © {new Date().getFullYear()} AI Podcast/Clipper Inc. All rights reserved.
+            © {new Date().getFullYear()} ClipSense. All rights reserved.
           </p>
           <div className="flex gap-6 text-sm font-medium text-slate-600">
             <Link href="/privacy" className="hover:text-slate-900">Privacy</Link>

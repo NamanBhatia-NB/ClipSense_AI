@@ -32,7 +32,7 @@ export function DeleteAccountSection() {
             } else {
                 setError(result.error ?? "Failed to delete account");
             }
-        } catch (err) {
+        } catch {
             setError("An unexpected error occurred");
         } finally {
             setIsDeleting(false);

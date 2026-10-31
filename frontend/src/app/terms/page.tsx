@@ -7,7 +7,7 @@ export default function TermsPage() {
                 <section>
                     <h2 className="text-2xl font-semibold mb-4">1. Acceptance of Terms</h2>
                     <p className="text-slate-600">
-                        By accessing and using AI Podcast Clipper, you accept and agree to be bound by the terms and provision of this agreement.
+                        By accessing and using ClipSense, you accept and agree to be bound by the terms and provision of this agreement.
                     </p>
                 </section>
 
@@ -26,16 +26,14 @@ export default function TermsPage() {
                 </section>
 
                 <section>
-                    <h2 className="text-2xl font-semibold mb-4">3. Social Media Integrations & Publishing</h2>
+                    <h2 className="text-2xl font-semibold mb-4">3. Content Download & Publishing</h2>
                     <p className="text-slate-600 mb-2">
-                        Our service allows you to link third-party social media accounts (such as YouTube, Facebook, and Instagram) to publish and schedule content directly. By using these features, you agree that:
+                        ClipSense allows you to download rendered highlight clips directly to your local device. When publishing clips to third-party platforms (such as YouTube, Facebook, Instagram, TikTok, or X), you agree that:
                     </p>
                     <ul className="list-disc pl-6 text-slate-600 space-y-2">
-                        <li>You grant us permission to post content to your connected accounts on your behalf, at the times you schedule.</li>
-                        <li>You remain solely responsible for any content published to your accounts through our service.</li>
-                        <li>You must comply with the Terms of Service and Community Guidelines of any connected platform (e.g., Meta, Google/YouTube).</li>
-                        <li>We use official APIs (such as YouTube API Services). By using our YouTube integration, you are agreeing to be bound by the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">YouTube Terms of Service</a>.</li>
-                        <li>We are not responsible if a third-party platform restricts, suspends, or bans your account due to the content you publish or the frequency of your posting.</li>
+                        <li>You are solely responsible for any content you publish or distribute.</li>
+                        <li>You must comply with the Terms of Service and Community Guidelines of any destination platform.</li>
+                        <li>You are responsible for reviewing and verifying all AI-generated captions and boundaries prior to posting.</li>
                     </ul>
                 </section>
 
@@ -71,7 +69,7 @@ export default function TermsPage() {
                 <section>
                     <h2 className="text-2xl font-semibold mb-4">7. Limitation of Liability</h2>
                     <p className="text-slate-600">
-                        AI Podcast Clipper and its operators shall not be liable for any indirect, incidental, special, consequential, or punitive damages resulting from your use of the service, including but not loss of data, loss of revenue, or social media account suspension.
+                        ClipSense and its operators shall not be liable for any indirect, incidental, special, consequential, or punitive damages resulting from your use of the service, including but not loss of data, loss of revenue, or social media account suspension.
                     </p>
                 </section>
 
@@ -85,7 +83,7 @@ export default function TermsPage() {
                 <section>
                     <h2 className="text-2xl font-semibold mb-4">9. Contact</h2>
                     <p className="text-slate-600">
-                        For questions about these terms, please contact us at: <strong>aipodcastclipper@gmail.com</strong>.
+                        For questions about these terms, please contact us at: <strong>contact@clipsense.ai</strong>.
                     </p>
                 </section>
 

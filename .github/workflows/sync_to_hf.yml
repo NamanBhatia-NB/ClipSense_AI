@@ -1,0 +1,32 @@
+name: Sync to Hugging Face Space
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync-to-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Deploy to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Create an orphan deployment branch containing only backend service files
+          git checkout --orphan hf-space
+
+          # Exclude frontend and actions (contains web binary assets not permitted by HF Space git pre-receive hook)
+          git rm -rf frontend/ .github/
+
+          # Commit clean backend deployment snapshot
+          git commit -m "Deploy ClipSense AI backend to Hugging Face Space"
+
+          # Push clean deployment branch to Hugging Face Space main branch
+          git push --force https://NamanBhatia-NB:$HF_TOKEN@huggingface.co/spaces/NamanBhatia-NB/ClipSense_AI.git hf-space:main

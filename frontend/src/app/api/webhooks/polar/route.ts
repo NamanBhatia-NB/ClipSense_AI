@@ -29,6 +29,11 @@ export async function POST(req: Request) {
             return new NextResponse("No body provided", { status: 400 });
         }
 
+        if (!env.POLAR_WEBHOOK_SECRET) {
+            console.error("Polar webhook secret not configured");
+            return new NextResponse("Polar webhook secret not configured", { status: 500 });
+        }
+
         const secret = env.POLAR_WEBHOOK_SECRET.replace("polar_whs_", "");
         const webhook = new Webhook(secret);
 

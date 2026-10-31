@@ -13,7 +13,7 @@ A very common mistake is adding someone as a Tester, but they never actually acc
 1. Log into Facebook on a computer as **Account B**.
 2. Go to [developers.facebook.com](https://developers.facebook.com/) (Account B may need to click "Get Started" to register as a developer).
 3. In the top right, click **My Apps**. 
-4. Look for a notification or an invite for your **AI Podcast Clipper** app and **Accept** it.
+4. Look for a notification or an invite for your **ClipSense AI** app and **Accept** it.
 
 ### Step 2: The "Page Admin" Hack (The Ultimate Bypass)
 Since this is only for 2 or 3 users, this is the absolute most reliable way to bypass Meta's Business Manager firewall in Development Mode. Instead of fighting the Business settings, just add Account A directly to the Pages.
@@ -29,7 +29,7 @@ Since this is only for 2 or 3 users, this is the absolute most reliable way to b
 ### Step 3: Clear the Cache and Re-Link
 Because we are changing permissions natively on Facebook, we need to flush the old, broken token out of your app.
 
-1. Have **Account B** go to their Facebook **Settings -> Business Integrations** and **Remove** the AI Podcast Clipper app.
+1. Have **Account B** go to their Facebook **Settings -> Business Integrations** and **Remove** the ClipSense AI app.
 2. In your local terminal, run `npx prisma studio` and delete the Facebook row for Account B.
 3. Log into your SaaS website as Account B.
 4. Click **Link Meta**.

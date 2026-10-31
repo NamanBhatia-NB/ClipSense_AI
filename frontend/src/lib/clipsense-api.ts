@@ -1,5 +1,5 @@
 /**
- * ClipSense AI - Local API Client (Week 9)
+ * ClipSense - Local API Client
  *
  * Provides typed methods for interacting with the local FastAPI backend:
  * - Health and readiness monitoring
@@ -21,7 +21,7 @@ export interface HealthResponse {
 export interface TaskStatusResponse {
   task_id: string;
   status: "queued" | "processing" | "completed" | "failed";
-  stage: "queued" | "extraction" | "experts" | "bundle" | "mter" | "rendering" | "completed" | "failed";
+  stage: "queued" | "extraction" | "experts" | "bundle" | "mter" | "refinement" | "rendering" | "completed" | "failed";
   progress: number;
   message: string;
   error?: string | null;
@@ -89,11 +89,44 @@ export interface TaskHighlightsResponse {
   execution_time_sec?: number | null;
 }
 
+export function normalizeApiBaseUrl(rawUrl: string): string {
+  const url = rawUrl.trim().replace(/\/+$/, "");
+
+  // If user provided Hugging Face Space repository URL instead of direct app domain:
+  // e.g. https://huggingface.co/spaces/NamanBhatia-NB/ClipSense_AI -> https://namanbhatia-nb-clipsense-ai.hf.space
+  const hfPattern = /^https?:\/\/huggingface\.co\/spaces\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)/i;
+  const hfSpaceMatch = hfPattern.exec(url);
+  if (hfSpaceMatch) {
+    const user = (hfSpaceMatch[1] ?? "").toLowerCase().replace(/_/g, "-");
+    const space = (hfSpaceMatch[2] ?? "").toLowerCase().replace(/_/g, "-");
+    return `https://${user}-${space}.hf.space`;
+  }
+
+  return url;
+}
+
 export function getApiBaseUrl(): string {
-  if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_CLIPSENSE_API_URL) {
-    return process.env.NEXT_PUBLIC_CLIPSENSE_API_URL;
+  const envUrl = process.env.NEXT_PUBLIC_CLIPSENSE_API_URL;
+  if (envUrl && envUrl.trim().length > 0) {
+    return normalizeApiBaseUrl(envUrl);
   }
   return "http://localhost:8000";
+}
+
+interface ApiErrorDetail {
+  detail?: string;
+}
+
+async function extractApiErrorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const errData = (await res.json()) as ApiErrorDetail;
+    if (typeof errData?.detail === "string" && errData.detail.trim().length > 0) {
+      return errData.detail;
+    }
+  } catch {
+    // Non-JSON or unreachable body fallback
+  }
+  return fallback;
 }
 
 /**
@@ -121,12 +154,45 @@ export async function checkBackendHealth(): Promise<{ available: boolean; ffmpeg
   }
 }
 
+export interface UserClipItem {
+  clip_id: string;
+  task_id: string;
+  filename: string;
+  stream_url: string;
+  download_url: string;
+  source_video: string;
+  start_time: number;
+  end_time: number;
+  duration: number;
+  file_size_bytes?: number | null;
+  created_at: number;
+  rank?: number;
+  aspect_ratio?: string;
+  subtitles?: boolean;
+  score?: number;
+  mter_event_id?: string;
+}
+
+export interface UserClipsResponse {
+  user_id: string;
+  total_clips: number;
+  clips: UserClipItem[];
+}
+
 /**
  * Submit an uploaded video file for processing.
  */
 export async function submitVideoUpload(
   file: File,
-  options?: { top_k?: number; use_cache?: boolean; render_mode?: string; refine_boundaries?: boolean }
+  options?: {
+    top_k?: number;
+    use_cache?: boolean;
+    render_mode?: string;
+    refine_boundaries?: boolean;
+    aspect_ratio?: string;
+    add_subtitles?: boolean;
+    user_id?: string;
+  }
 ): Promise<{ task_id: string; message: string; video_filename: string }> {
   const baseUrl = getApiBaseUrl();
   const formData = new FormData();
@@ -135,6 +201,11 @@ export async function submitVideoUpload(
   formData.append("use_cache", String(options?.use_cache ?? true));
   formData.append("render_mode", options?.render_mode ?? "accurate");
   formData.append("refine_boundaries", String(options?.refine_boundaries ?? true));
+  formData.append("aspect_ratio", options?.aspect_ratio ?? "9:16");
+  formData.append("add_subtitles", String(options?.add_subtitles ?? true));
+  if (options?.user_id) {
+    formData.append("user_id", options.user_id);
+  }
 
   const res = await fetch(`${baseUrl}/api/process`, {
     method: "POST",
@@ -142,8 +213,8 @@ export async function submitVideoUpload(
   });
 
   if (!res.ok) {
-    const errData = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
-    throw new Error(errData.detail || `Upload failed with status ${res.status}`);
+    const errorMsg = await extractApiErrorMessage(res, `Upload failed with status ${res.status}`);
+    throw new Error(errorMsg);
   }
 
   return (await res.json()) as { task_id: string; message: string; video_filename: string };
@@ -154,7 +225,15 @@ export async function submitVideoUpload(
  */
 export async function submitVideoPath(
   videoPath: string,
-  options?: { top_k?: number; use_cache?: boolean; render_mode?: string; refine_boundaries?: boolean }
+  options?: {
+    top_k?: number;
+    use_cache?: boolean;
+    render_mode?: string;
+    refine_boundaries?: boolean;
+    aspect_ratio?: string;
+    add_subtitles?: boolean;
+    user_id?: string;
+  }
 ): Promise<{ task_id: string; message: string; video_filename: string }> {
   const baseUrl = getApiBaseUrl();
   const formData = new FormData();
@@ -163,6 +242,11 @@ export async function submitVideoPath(
   formData.append("use_cache", String(options?.use_cache ?? true));
   formData.append("render_mode", options?.render_mode ?? "accurate");
   formData.append("refine_boundaries", String(options?.refine_boundaries ?? true));
+  formData.append("aspect_ratio", options?.aspect_ratio ?? "9:16");
+  formData.append("add_subtitles", String(options?.add_subtitles ?? true));
+  if (options?.user_id) {
+    formData.append("user_id", options.user_id);
+  }
 
   const res = await fetch(`${baseUrl}/api/process`, {
     method: "POST",
@@ -170,11 +254,49 @@ export async function submitVideoPath(
   });
 
   if (!res.ok) {
-    const errData = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
-    throw new Error(errData.detail || `Submission failed with status ${res.status}`);
+    const errorMsg = await extractApiErrorMessage(res, `Submission failed with status ${res.status}`);
+    throw new Error(errorMsg);
   }
 
   return (await res.json()) as { task_id: string; message: string; video_filename: string };
+}
+
+function resolveFullApiUrl(pathOrUrl?: string | null): string {
+  if (!pathOrUrl || typeof pathOrUrl !== "string") return "";
+  const trimmed = pathOrUrl.trim();
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+  const baseUrl = getApiBaseUrl();
+  const cleanPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return `${baseUrl}${cleanPath}`;
+}
+
+/**
+ * Retrieve all local clips generated for a user.
+ */
+export async function getUserClips(userId: string): Promise<UserClipsResponse> {
+  const baseUrl = getApiBaseUrl();
+  const res = await fetch(`${baseUrl}/api/users/${encodeURIComponent(userId)}/clips`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    const errorMsg = await extractApiErrorMessage(res, `Failed to fetch user clips (${res.status})`);
+    throw new Error(errorMsg);
+  }
+
+  const data = (await res.json()) as UserClipsResponse;
+  return {
+    ...data,
+    clips: (data.clips ?? []).map((clip) => ({
+      ...clip,
+      stream_url: resolveFullApiUrl(clip.stream_url),
+      download_url: resolveFullApiUrl(clip.download_url),
+    })),
+  };
 }
 
 /**
@@ -189,8 +311,8 @@ export async function getTaskStatus(taskId: string): Promise<TaskStatusResponse>
   });
 
   if (!res.ok) {
-    const errData = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
-    throw new Error(errData.detail || `Failed to retrieve task status (${res.status})`);
+    const errorMsg = await extractApiErrorMessage(res, `Failed to retrieve task status (${res.status})`);
+    throw new Error(errorMsg);
   }
 
   return (await res.json()) as TaskStatusResponse;
@@ -208,11 +330,24 @@ export async function getTaskHighlights(taskId: string): Promise<TaskHighlightsR
   });
 
   if (!res.ok) {
-    const errData = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
-    throw new Error(errData.detail || `Failed to retrieve highlights (${res.status})`);
+    const errorMsg = await extractApiErrorMessage(res, `Failed to retrieve highlights (${res.status})`);
+    throw new Error(errorMsg);
   }
 
-  return (await res.json()) as TaskHighlightsResponse;
+  const data = (await res.json()) as TaskHighlightsResponse;
+  return {
+    ...data,
+    highlights: (data.highlights ?? []).map((h) => ({
+      ...h,
+      clip: h.clip
+        ? {
+            ...h.clip,
+            stream_url: resolveFullApiUrl(h.clip.stream_url),
+            download_url: resolveFullApiUrl(h.clip.download_url),
+          }
+        : null,
+    })),
+  };
 }
 
 /**

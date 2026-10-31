@@ -50,7 +50,7 @@ export function SignupForm({
             } else {
                 router.push('/dashboard');
             }
-        } catch (error) {
+        } catch {
             setError("An unexpected error occurred.");
         } finally {
             setIsSubmitting(false);
@@ -62,7 +62,7 @@ export function SignupForm({
             setIsGoogleLoading(true);
             setError(null);
             await signIn("google", { callbackUrl: "/dashboard" });
-        } catch (error) {
+        } catch {
             setError("An unexpected error occurred with Google sign up.");
             setIsGoogleLoading(false);
         }

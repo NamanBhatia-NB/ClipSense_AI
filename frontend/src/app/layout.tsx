@@ -2,10 +2,11 @@ import "~/styles/globals.css";
 
 import { type Metadata } from "next";
 import { Geist } from "next/font/google";
+import { Providers } from "~/components/providers";
 
 export const metadata: Metadata = {
-  title: "AI Podcast Clipper",
-  description: "Clip and create highlights from your podcasts using AI.",
+  title: "ClipSense - Multimodal Video Highlight Extraction",
+  description: "Extract, rank, and render vertical viral highlights from long-form video using ClipSense.",
   icons: [{ rel: "icon", url: "/favicon.ico" }],
 };
 
@@ -19,7 +20,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${geist.variable}`}>
-      <body>{children}</body>
+      <body>
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

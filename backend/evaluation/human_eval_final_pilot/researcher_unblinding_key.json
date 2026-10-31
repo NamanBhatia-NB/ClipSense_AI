@@ -1,0 +1,211 @@
+{
+  "warning": "RESEARCHER ONLY \u2014 DO NOT SHARE WITH RATERS BEFORE RATING IS COMPLETE",
+  "blind_code_to_system_name": {
+    "SYS_GAMMA": "system_c_mter",
+    "SYS_BETA": "system_b_simple_aggregation",
+    "SYS_DELTA": "system_d_mter_refined",
+    "SYS_ALPHA": "system_a_transcript_only"
+  },
+  "clip_truth_mapping": {
+    "clip_01": {
+      "source_video_id": "rhapsody_real_brYEgU782YU",
+      "blind_system_code": "SYS_GAMMA",
+      "system_name_truth": "system_c_mter",
+      "start_sec": 134.224,
+      "end_sec": 150.674,
+      "duration_sec": 16.45,
+      "span_id": "",
+      "inference_score": "0.5971"
+    },
+    "clip_02": {
+      "source_video_id": "rhapsody_real_brYEgU782YU",
+      "blind_system_code": "SYS_BETA",
+      "system_name_truth": "system_b_simple_aggregation",
+      "start_sec": 134.224,
+      "end_sec": 150.674,
+      "duration_sec": 16.45,
+      "span_id": "",
+      "inference_score": "0.3722"
+    },
+    "clip_03": {
+      "source_video_id": "rhapsody_real_brYEgU782YU",
+      "blind_system_code": "SYS_DELTA",
+      "system_name_truth": "system_d_mter_refined",
+      "start_sec": 134.074,
+      "end_sec": 150.824,
+      "duration_sec": 16.75,
+      "span_id": "",
+      "inference_score": "0.5971"
+    },
+    "clip_04": {
+      "source_video_id": "rhapsody_real_brYEgU782YU",
+      "blind_system_code": "SYS_ALPHA",
+      "system_name_truth": "system_a_transcript_only",
+      "start_sec": 1416.159,
+      "end_sec": 1450.808,
+      "duration_sec": 34.649,
+      "span_id": "",
+      "inference_score": "0.783"
+    },
+    "clip_05": {
+      "source_video_id": "rhapsody_real_gEcW5rta3wU",
+      "blind_system_code": "SYS_DELTA",
+      "system_name_truth": "system_d_mter_refined",
+      "start_sec": 1230.426,
+      "end_sec": 1280.238,
+      "duration_sec": 49.812,
+      "span_id": "",
+      "inference_score": "0.7209"
+    },
+    "clip_06": {
+      "source_video_id": "rhapsody_real_gEcW5rta3wU",
+      "blind_system_code": "SYS_GAMMA",
+      "system_name_truth": "system_c_mter",
+      "start_sec": 1230.576,
+      "end_sec": 1280.088,
+      "duration_sec": 49.512,
+      "span_id": "",
+      "inference_score": "0.7209"
+    },
+    "clip_07": {
+      "source_video_id": "rhapsody_real_gEcW5rta3wU",
+      "blind_system_code": "SYS_ALPHA",
+      "system_name_truth": "system_a_transcript_only",
+      "start_sec": 2338.584,
+      "end_sec": 2355.573,
+      "duration_sec": 16.989,
+      "span_id": "",
+      "inference_score": "0.803"
+    },
+    "clip_08": {
+      "source_video_id": "rhapsody_real_gEcW5rta3wU",
+      "blind_system_code": "SYS_BETA",
+      "system_name_truth": "system_b_simple_aggregation",
+      "start_sec": 1411.798,
+      "end_sec": 1455.436,
+      "duration_sec": 43.638,
+      "span_id": "",
+      "inference_score": "0.4235"
+    },
+    "clip_09": {
+      "source_video_id": "rhapsody_real_h91NpMIgbdI",
+      "blind_system_code": "SYS_BETA",
+      "system_name_truth": "system_b_simple_aggregation",
+      "start_sec": 39.03,
+      "end_sec": 53.801,
+      "duration_sec": 14.771,
+      "span_id": "",
+      "inference_score": "0.3622"
+    },
+    "clip_10": {
+      "source_video_id": "rhapsody_real_h91NpMIgbdI",
+      "blind_system_code": "SYS_DELTA",
+      "system_name_truth": "system_d_mter_refined",
+      "start_sec": 102.593,
+      "end_sec": 135.492,
+      "duration_sec": 32.899,
+      "span_id": "",
+      "inference_score": "0.5925"
+    },
+    "clip_11": {
+      "source_video_id": "rhapsody_real_h91NpMIgbdI",
+      "blind_system_code": "SYS_GAMMA",
+      "system_name_truth": "system_c_mter",
+      "start_sec": 102.743,
+      "end_sec": 135.342,
+      "duration_sec": 32.599,
+      "span_id": "",
+      "inference_score": "0.5925"
+    },
+    "clip_12": {
+      "source_video_id": "rhapsody_real_h91NpMIgbdI",
+      "blind_system_code": "SYS_ALPHA",
+      "system_name_truth": "system_a_transcript_only",
+      "start_sec": 577.467,
+      "end_sec": 636.083,
+      "duration_sec": 58.616,
+      "span_id": "",
+      "inference_score": "0.788"
+    },
+    "clip_13": {
+      "source_video_id": "rhapsody_real_hSuSutvGdXQ",
+      "blind_system_code": "SYS_BETA",
+      "system_name_truth": "system_b_simple_aggregation",
+      "start_sec": 1098.092,
+      "end_sec": 1115.148,
+      "duration_sec": 17.056,
+      "span_id": "",
+      "inference_score": "0.4278"
+    },
+    "clip_14": {
+      "source_video_id": "rhapsody_real_hSuSutvGdXQ",
+      "blind_system_code": "SYS_GAMMA",
+      "system_name_truth": "system_c_mter",
+      "start_sec": 1098.092,
+      "end_sec": 1115.148,
+      "duration_sec": 17.056,
+      "span_id": "",
+      "inference_score": "0.6809"
+    },
+    "clip_15": {
+      "source_video_id": "rhapsody_real_hSuSutvGdXQ",
+      "blind_system_code": "SYS_ALPHA",
+      "system_name_truth": "system_a_transcript_only",
+      "start_sec": 1098.092,
+      "end_sec": 1115.148,
+      "duration_sec": 17.056,
+      "span_id": "",
+      "inference_score": "0.811"
+    },
+    "clip_16": {
+      "source_video_id": "rhapsody_real_hSuSutvGdXQ",
+      "blind_system_code": "SYS_DELTA",
+      "system_name_truth": "system_d_mter_refined",
+      "start_sec": 1097.942,
+      "end_sec": 1115.298,
+      "duration_sec": 17.356,
+      "span_id": "",
+      "inference_score": "0.6809"
+    },
+    "clip_17": {
+      "source_video_id": "rhapsody_real_r0VyLTLGcWk",
+      "blind_system_code": "SYS_BETA",
+      "system_name_truth": "system_b_simple_aggregation",
+      "start_sec": 2733.215,
+      "end_sec": 2752.949,
+      "duration_sec": 19.734,
+      "span_id": "",
+      "inference_score": "0.4275"
+    },
+    "clip_18": {
+      "source_video_id": "rhapsody_real_r0VyLTLGcWk",
+      "blind_system_code": "SYS_GAMMA",
+      "system_name_truth": "system_c_mter",
+      "start_sec": 1040.492,
+      "end_sec": 1093.435,
+      "duration_sec": 52.943,
+      "span_id": "",
+      "inference_score": "0.7057"
+    },
+    "clip_19": {
+      "source_video_id": "rhapsody_real_r0VyLTLGcWk",
+      "blind_system_code": "SYS_DELTA",
+      "system_name_truth": "system_d_mter_refined",
+      "start_sec": 1040.342,
+      "end_sec": 1093.585,
+      "duration_sec": 53.243,
+      "span_id": "",
+      "inference_score": "0.7057"
+    },
+    "clip_20": {
+      "source_video_id": "rhapsody_real_r0VyLTLGcWk",
+      "blind_system_code": "SYS_ALPHA",
+      "system_name_truth": "system_a_transcript_only",
+      "start_sec": 2733.215,
+      "end_sec": 2752.949,
+      "duration_sec": 19.734,
+      "span_id": "",
+      "inference_score": "0.81"
+    }
+  }
+}

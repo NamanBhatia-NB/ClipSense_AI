@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.config import BoundaryRefinerConfig
 from core.schemas import (
     BoundaryRefinementMetadata,
+    CommonEvidenceBundle,
     ConversationData,
     MTERCandidate,
     ProsodyData,
@@ -80,6 +81,7 @@ class BoundaryRefiner:
         visual_data: Optional[VisualData] = None,
         prosody_data: Optional[ProsodyData] = None,
         video_duration: Optional[float] = None,
+        bundle: Optional[CommonEvidenceBundle] = None,
     ) -> List[MTERCandidate]:
         """
         Refines a list of MTER highlight candidates sequentially.
@@ -99,6 +101,7 @@ class BoundaryRefiner:
                 visual_data=visual_data,
                 prosody_data=prosody_data,
                 video_duration=video_duration,
+                bundle=bundle,
             )
             refined_list.append(refined_cand)
 
@@ -112,6 +115,7 @@ class BoundaryRefiner:
         visual_data: Optional[VisualData] = None,
         prosody_data: Optional[ProsodyData] = None,
         video_duration: Optional[float] = None,
+        bundle: Optional[CommonEvidenceBundle] = None,
     ) -> MTERCandidate:
         """
         Refines a single highlight candidate's start and end timestamps.
@@ -122,6 +126,9 @@ class BoundaryRefiner:
 
         # Determine effective video duration
         eff_video_dur = video_duration
+        if eff_video_dur is None and bundle is not None and bundle.total_duration > 0:
+            eff_video_dur = bundle.total_duration
+
         if eff_video_dur is None:
             if transcript_data and transcript_data.duration > 0:
                 eff_video_dur = transcript_data.duration

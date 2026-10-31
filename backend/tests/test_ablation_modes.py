@@ -59,8 +59,9 @@ class TestAblationModes(unittest.TestCase):
         self.assertAlmostEqual(span.start_time, 10.0, places=5)
         self.assertAlmostEqual(span.end_time, 20.0, places=5)
 
-        # Expected unweighted score: (0.8 [trans] + 0.0 [conv] + 0.6 [vis] + 0.0 [pros]) / 4 = 1.4 / 4 = 0.35
-        self.assertAlmostEqual(span.confidence, 0.35, places=5)
+        # Expected unweighted score normalized over available modalities (M=2: transcript + visual):
+        # (0.8 [trans] + 0.6 [vis]) / 2 = 1.4 / 2 = 0.70
+        self.assertAlmostEqual(span.confidence, 0.70, places=5)
 
     def test_all_experts_no_mter_nms_suppression(self):
         # Two highly overlapping proposals [10, 25] and [11, 25]

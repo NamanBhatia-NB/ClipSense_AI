@@ -63,19 +63,21 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Configure CORS for local Next.js frontend
+# Configure CORS for local Next.js frontend and production Vercel apps
 default_origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:3001",
     "http://127.0.0.1:3001",
+    "https://clip-sense-ai.vercel.app",
 ]
 env_origins = os.getenv("CLIPSENSE_CORS_ORIGINS")
-cors_origins = [o.strip() for o in env_origins.split(",")] if env_origins else default_origins
+cors_origins = [o.strip() for o in env_origins.split(",") if o.strip() and o.strip() != "*"] if env_origins else default_origins
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|.*\.vercel\.app)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -123,6 +125,12 @@ async def process_video(
     mock_llm: bool = Form(False),
     render_mode: str = Form("accurate"),
     refine_boundaries: bool = Form(True),
+    aspect_ratio: str = Form("9:16"),
+    add_subtitles: bool = Form(True),
+    user_id: Optional[str] = Form(None),
+    selection_mode: Optional[str] = Form(None),
+    natural_acceptance_threshold: Optional[float] = Form(None),
+    max_total_selected_duration_sec: Optional[float] = Form(None),
 ) -> ProcessTaskResponse:
     """
     Accept a supported video upload or local path, initiate asynchronous processing,
@@ -140,14 +148,26 @@ async def process_video(
             mock_llm = bool(body.get("mock_llm", mock_llm))
             render_mode = str(body.get("render_mode", render_mode))
             refine_boundaries = bool(body.get("refine_boundaries", refine_boundaries))
+            aspect_ratio = str(body.get("aspect_ratio", aspect_ratio))
+            add_subtitles = bool(body.get("add_subtitles", add_subtitles))
+            user_id = body.get("user_id") or user_id
+            selection_mode = body.get("selection_mode") or selection_mode
+            if "natural_acceptance_threshold" in body:
+                natural_acceptance_threshold = float(body["natural_acceptance_threshold"])
+            if "max_total_selected_duration_sec" in body:
+                max_total_selected_duration_sec = float(body["max_total_selected_duration_sec"])
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Malformed JSON payload: {str(e)}",
             )
 
-    # Validate Top-K bounds
-    top_k = max(1, min(10, top_k))
+    # Validate Top-K bounds (strictly between 1 and 10 inclusive)
+    if top_k < 1 or top_k > 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Number of clips ('top_k') must be between 1 and 10 (inclusive). Received: {top_k}",
+        )
     if render_mode not in ("accurate", "fast"):
         render_mode = "accurate"
 
@@ -234,6 +254,12 @@ async def process_video(
         mock_llm=mock_llm,
         render_mode=render_mode,
         refine_boundaries=refine_boundaries,
+        aspect_ratio=aspect_ratio,
+        add_subtitles=add_subtitles,
+        user_id=user_id,
+        selection_mode=selection_mode,
+        natural_acceptance_threshold=natural_acceptance_threshold,
+        max_total_selected_duration_sec=max_total_selected_duration_sec,
     )
 
     return ProcessTaskResponse(
@@ -314,6 +340,60 @@ def stream_or_download_clip(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Clip '{filename}' not found for task '{task_id}'.",
+        )
+
+    headers = {}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+    return FileResponse(
+        path=str(clip_path),
+        media_type="video/mp4",
+        filename=filename if download else None,
+        headers=headers,
+    )
+
+
+@app.get("/api/users/{user_id}/clips")
+def get_user_clips(user_id: str) -> Dict[str, Any]:
+    """
+    Retrieve all local ClipSense AI clips saved for the specified user.
+    """
+    clips = task_manager.get_user_clips(user_id)
+    return {
+        "user_id": user_id,
+        "total_clips": len(clips),
+        "clips": clips,
+    }
+
+
+@app.get("/api/users/{user_id}/clips/{filename}")
+def stream_user_clip(
+    user_id: str,
+    filename: str,
+    download: bool = Query(False),
+) -> FileResponse:
+    """
+    Stream or download an exported ClipSense AI video clip saved under the user's storage.
+    """
+    if not task_manager.is_valid_clip_filename(filename):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid clip filename. Must be a direct .mp4 file.",
+        )
+
+    user_dir = task_manager.get_user_clips_dir(user_id)
+    clip_path = (user_dir / filename).resolve()
+
+    try:
+        clip_path.relative_to(user_dir.resolve())
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    if not clip_path.exists() or not clip_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Clip '{filename}' not found for user.",
         )
 
     headers = {}

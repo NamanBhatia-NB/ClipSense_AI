@@ -36,7 +36,7 @@ class TaskStatusResponse(BaseModel):
     task_id: str
     status: Literal["queued", "processing", "completed", "failed"]
     stage: Literal[
-        "queued", "extraction", "experts", "bundle", "mter", "rendering", "completed", "failed"
+        "queued", "extraction", "experts", "bundle", "mter", "refinement", "rendering", "completed", "failed"
     ]
     progress: float = Field(0.0, ge=0.0, le=1.0)
     message: str

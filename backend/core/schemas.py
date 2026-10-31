@@ -343,6 +343,14 @@ class CandidateSupportMetrics(BaseModel):
         le=1.0,
         description="Composite evidence strength score explicitly bounded to [0.0, 1.0] via max(0.0, min(1.0, raw_composite)) for all evaluated candidates"
     )
+    score_components: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Transparent breakdown of weighted and unweighted terms contributing to composite_score"
+    )
+    score_type: str = Field(
+        "heuristic_evidence_strength",
+        description="Explicit label confirming this score is a heuristic ranking metric, not a calibrated probability"
+    )
 
 
 class SemanticVerificationCriteria(BaseModel):
@@ -466,6 +474,27 @@ class EvidenceLedger(BaseModel):
     evaluated_candidates: List[Dict[str, Any]] = Field(default_factory=list)
     selected_candidate: Optional[MTERCandidate] = None
     decision_summary: str = ""
+    selection_mode: str = Field("natural", description="Mode used for selection: 'natural' or 'fixed_budget'")
+    modality_availability: Dict[str, bool] = Field(
+        default_factory=dict,
+        description="Tracks which modalities produced evidence proposals for this video vs which were absent"
+    )
+    filtering_stages: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Waterfall count of candidates surviving each successive filtering stage"
+    )
+    redundancy_metrics: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Detailed redundancy, total duration, union coverage, and overlap statistics"
+    )
+    rejected_by_rule: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Histogram of candidate rejections classified by filtering rule"
+    )
+    suppression_records: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Detailed records of candidates suppressed during NMS and near-duplicate filtering with partner candidate and reason"
+    )
 
 
 class MTEROutput(BaseModel):
@@ -499,6 +528,12 @@ class ClipExportResult(BaseModel):
     file_size_bytes: Optional[int] = None
     render_mode: Literal["accurate", "fast"] = "accurate"
     execution_time_sec: float = 0.0
+    score: float = Field(0.0, description="Inference-time ranking score (composite evidence strength)")
+    original_start: float = Field(0.0, ge=0.0, description="Original unrefined start timestamp")
+    original_end: float = Field(0.0, ge=0.0, description="Original unrefined end timestamp")
+    original_duration: float = Field(0.0, ge=0.0, description="Original unrefined duration")
+    refinement_status: Literal["refined", "not_refined"] = Field("not_refined", description="Boundary refinement status")
+    fallback_reason: Optional[str] = Field(None, description="Reason if boundary refinement fell back to original")
     boundary_refinement: Optional[BoundaryRefinementMetadata] = None
 
 

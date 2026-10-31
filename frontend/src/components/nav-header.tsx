@@ -30,10 +30,8 @@ const NavHeader = ({ user, credits = 0 }: NavHeaderProps) => {
                     <div className="h-8 w-8 rounded-lg flex items-center justify-center">
                         <Image src="/logo.png" alt=""  width={20} height={20}/>
                     </div>
-                    <div className="font-sans text-xl font-medium tracking-tight">
-                        <span className="text-foreground">AI Podcast</span>
-                        <span className="font-light text-gray-500">/</span>
-                        <span className="text-foreground font-light">Clipper</span>
+                    <div className="font-sans text-xl font-bold tracking-tight flex items-center gap-1.5">
+                        <span className="text-foreground">ClipSense</span>
                     </div>
                 </Link>
 
